@@ -1,0 +1,13 @@
+﻿seed: 42
+paths:
+  raw: "data/raw"
+  interim: "data/interim"
+  processed: "data/processed"
+  figures: "reports/figures"
+dr:
+  umap:
+    n_neighbors: 15
+    min_dist: 0.1
+    metric: euclidean
+split:
+  n_splits: 5
