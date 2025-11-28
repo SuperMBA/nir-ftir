@@ -1,0 +1,29 @@
+name: ftir311
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+  - umap-learn
+  - pynndescent
+  - matplotlib
+  - plotly
+  - imbalanced-learn
+  - xgboost
+  - shap
+  - statsmodels
+  - pyyaml
+  - hydra-core
+  - mlflow
+  - ipykernel
+  - ipywidgets
+  - rich
+  - tqdm
+  - dvc
+  - pre-commit
+  - black
+  - isort
+  - flake8
