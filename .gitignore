@@ -6,3 +6,7 @@
 /.ipynb_checkpoints/
 /.vscode/
 .env
+
+# local artifacts
+mlflow.db
+mlruns/
