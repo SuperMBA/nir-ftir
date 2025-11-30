@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Callable, Dict, List, Tuple
 
 # Настройка matplotlib для headless-режима ДО импорта pyplot.
 import matplotlib
@@ -19,7 +19,7 @@ from sklearn.preprocessing import StandardScaler
 from statsmodels.stats.multitest import multipletests
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402  (импорт после исполняемой строки допустим локально)
+import matplotlib.pyplot as plt  # noqa: E402
 
 # ---------- Пути / константы ----------
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,7 +60,7 @@ def load_processed() -> Tuple[pd.DataFrame, pd.DataFrame]:
     return df_train, df_ext
 
 
-def pick_spectral_columns(df: pd.DataFrame) -> List:
+def pick_spectral_columns(df: pd.DataFrame) -> List[str]:
     """Выбрать столбцы, имена которых — волновые числа (числа). Отсортировать по возрастанию."""
     spec_cols = [c for c in df.columns if _is_number_like(c)]
     return sorted(spec_cols, key=lambda c: float(c))
@@ -90,8 +90,9 @@ def ttest_curve(
     """
     Welch t-test по каждому признаку + коррекция BH-FDR.
     Безопасно обрабатывает NaN/нулевую дисперсию.
+
     Возвращает DataFrame со столбцами:
-    wn, pval, qval, mean_pos, mean_neg, diff, valid, reason
+    wn, pval, qval, mean_pos, mean_neg, diff, effect_size, valid, reason
     """
     assert X.shape[1] == len(wns), "X и wns должны совпадать по числу признаков"
 
@@ -104,6 +105,7 @@ def ttest_curve(
     valid = np.zeros(nfeat, dtype=bool)
     reason = np.array([""] * nfeat, dtype=object)
 
+    # достаточность наблюдений и ненулевая дисперсия
     npos = np.isfinite(pos).sum(axis=0)
     nneg = np.isfinite(neg).sum(axis=0)
     vpos = np.nanvar(pos, axis=0, ddof=1)
@@ -117,6 +119,7 @@ def ttest_curve(
     reason[enough & ~nonconst] = "zero_variance"
     reason[valid] = ""
 
+    # p-values
     idx = np.where(valid)[0]
     for j in idx:
         pv = ttest_ind(pos[:, j], neg[:, j], equal_var=False, nan_policy="omit").pvalue
@@ -124,12 +127,18 @@ def ttest_curve(
             pv = 1.0
         pvals[j] = pv
 
+    # BH-FDR
     if idx.size > 0:
         qvals[idx] = multipletests(pvals[idx], method="fdr_bh")[1]
 
+    # средние и эффект Кохена
     mean_pos = np.nanmean(pos, axis=0)
     mean_neg = np.nanmean(neg, axis=0)
     diff = mean_pos - mean_neg
+
+    pooled_sd = np.sqrt((vpos + vneg) / 2.0)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        effect_size = np.where(pooled_sd > 0, diff / pooled_sd, np.nan)
 
     return pd.DataFrame(
         {
@@ -139,6 +148,7 @@ def ttest_curve(
             "mean_pos": mean_pos,
             "mean_neg": mean_neg,
             "diff": diff,
+            "effect_size": effect_size,
             "valid": valid,
             "reason": reason,
         }
@@ -186,7 +196,7 @@ def norm_minmax(X: np.ndarray) -> np.ndarray:
     return (X - mn) / rng
 
 
-NORM_SCHEMES: Dict[str, callable] = {
+NORM_SCHEMES: Dict[str, Callable[[np.ndarray], np.ndarray]] = {
     "none": norm_none,
     "l2": norm_l2,
     "snv": norm_snv,
@@ -202,7 +212,9 @@ def cv_auc_logreg(X: np.ndarray, y: np.ndarray, n_splits: int = 5) -> float:
         scaler = StandardScaler(with_mean=True, with_std=True)
         Xtr = scaler.fit_transform(X[tr])
         Xte = scaler.transform(X[te])
-        clf = LogisticRegression(max_iter=200, n_jobs=1, random_state=RANDOM_STATE)
+        clf = LogisticRegression(
+            solver="liblinear", max_iter=200, n_jobs=1, random_state=RANDOM_STATE
+        )
         clf.fit(Xtr, y[tr])
         prob = clf.predict_proba(Xte)[:, 1]
         aucs.append(roc_auc_score(y[te], prob))
@@ -234,7 +246,7 @@ def plot_norm_auc(df_norm: pd.DataFrame, path: Path) -> None:
 
 
 # ---------- Реплики (внешние) ----------
-def replicate_distances(df_ext: pd.DataFrame, spec_cols: List) -> pd.DataFrame:
+def replicate_distances(df_ext: pd.DataFrame, spec_cols: List[str]) -> pd.DataFrame:
     """Для каждого ID во внешнем наборе считаем попарные L2-дистанции."""
     arr = df_ext[spec_cols].to_numpy(float)
     ids = (
@@ -293,7 +305,7 @@ def main() -> None:
     print(f"train shape: {df_train.shape}, external shape: {df_ext.shape}")
     print(f"n_features (spectral): {X.shape[1]}")
 
-    # 1) t-test + BH-FDR
+    # 1) t-test + BH-FDR (+ Cohen's d)
     df_p = ttest_curve(X, y, wns)
     df_p.to_csv(REPORTS / "ttest_curve.csv", index=False)
     plot_qvalues(df_p, FIG_DIR / "qc_04_pvalues.png")
@@ -306,7 +318,7 @@ def main() -> None:
     df_norm.to_csv(REPORTS / "norm_auc.csv", index=False)
     plot_norm_auc(df_norm, FIG_DIR / "qc_06_norm_auc.png")
 
-    # 3) Реплики – расстояния
+    # 3) Реплики – расстояния (external)
     df_dist = replicate_distances(df_ext, spec_cols)
     df_dist.to_csv(REPORTS / "replicate_distances.csv", index=False)
     plot_replicate_hist(df_dist, FIG_DIR / "qc_07_replicate_dist.png")
@@ -331,7 +343,6 @@ def main() -> None:
             f"replicate distances: mean={df_dist['dist'].mean():.4f}, "
             f"median={df_dist['dist'].median():.4f}"
         )
-        # Для наглядности «топовый» ID по выбросам:
     if len(df_out):
         best = df_out.iloc[0]
         sid = f", ID={best['ID']}" if "ID" in df_out.columns else ""

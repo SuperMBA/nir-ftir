@@ -1,6 +1,6 @@
 train shape: (61, 253), external shape: (183, 252)
 n wavenumbers: 251
 ttest: total=251, valid=251, q<0.05=0
-AUC by normalization: snv=0.906, l2=0.891, minmax=0.853, none=0.763
+AUC by normalization: snv=0.902, l2=0.880, minmax=0.859, none=0.763
 replicate distances: mean=1.1323, median=0.6838
 top outlier: idx=15, ID=N16, dist2=60.000

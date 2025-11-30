@@ -1,11 +1,27 @@
-﻿/data/*
-!/data/.gitkeep
-/mlruns/
+﻿# --- data ---
+data/raw/**
+data/interim/**
+data/.DS_Store
+
+# allow processed
+!data/processed/
+data/processed/**
+!data/processed/train.parquet
+!data/processed/external.parquet
+
+# --- reports (все артефакты EDA/QC в репо) ---
+!reports/
+reports/**
+!reports/*.csv
+!reports/summary.txt
+!reports/figures/
+!reports/figures/*.png
+!reports/README.md
+
+# --- служебное ---
 /__pycache__/
 /.ipynb_checkpoints/
 /.vscode/
 .env
-
-# local artifacts
 mlflow.db
 mlruns/
