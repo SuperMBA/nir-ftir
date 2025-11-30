@@ -1,7 +1,6 @@
 ﻿/data/*
 !/data/.gitkeep
 /mlruns/
-/reports/figures/
 /__pycache__/
 /.ipynb_checkpoints/
 /.vscode/

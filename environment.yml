@@ -15,6 +15,7 @@ dependencies:
   - xgboost
   - shap
   - statsmodels
+  - openpyxl         # <— добавили для чтения .xlsx
   - pyyaml
   - hydra-core
   - mlflow
@@ -27,3 +28,4 @@ dependencies:
   - black
   - isort
   - flake8
+  - pip              # <— чтобы при пересборке можно было использовать pip-пакеты (при необходимости)
