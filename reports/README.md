@@ -1,0 +1,33 @@
+# QC / EDA summary
+
+## Dataset
+- train shape: **(61, 253)**
+- external shape: **(183, 252)**
+- spectral features: **251**
+
+## T-test (Welch) + BH-FDR
+- total features: **251**, valid: **251**, q<0.05: **0**
+- Figure: [q-values](./figures/qc_04_pvalues.png)
+- Table: [ttest_curve.csv](./ttest_curve.csv)
+
+## Normalization vs ROC-AUC (group-aware CV)
+- ranking: snv=0.906, l2=0.891, minmax=0.853, none=0.763
+- best: **snv (0.906)**
+- Figure: [qc_06_norm_auc.png](./figures/qc_06_norm_auc.png)
+- Table: [norm_auc.csv](./norm_auc.csv)
+
+## Replicates (external)
+- IDs with replicates: **61** | median(mean_dist): **0.970** | median(cv): **0.552**
+- Worst pair per ID is recorded in `worst_pair` and `max_dist`.
+- Figure: [replicate histogram](./figures/qc_07_replicate_dist.png)
+- Pairwise: [replicate_distances.csv](./replicate_distances.csv)
+- Per-ID summary: [external_replicates.csv](./external_replicates.csv)
+
+## Robust outliers (train)
+- χ² cutoff (df=30, 0.999): **59.70**
+- flagged among top-5: **5**
+- top indices: 22 (ID=N23) *, 54 (ID=P25) *, 20 (ID=N21) *, 57 (ID=P28) *, 16 (ID=N17) *
+- Table: [outliers_train.csv](./outliers_train.csv)
+
+---
+_Note_: CV is **group-aware** (by `ID`) to avoid data leakage. External set is never used for training.
