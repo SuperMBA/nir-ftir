@@ -1,51 +1,62 @@
 # -*- coding: utf-8 -*-
-"""Quality Control / extended EDA for saliva FTIR."""
+"""Quality Control / extended EDA for saliva FTIR.
+
+Функции:
+- Загрузка train/external parquet
+- Welch t-test + BH-FDR + Cohen's d
+- AUC по схемам нормализации (group-aware CV по ID)
+- Реплики (пары) + сводка по ID
+- Робастные выбросы (SNV -> PCA(whiten) -> MinCovDet) + χ²-порог
+- Анализ метаданных/конфаундеров (таблица значимости + baseline AUC)
+- Отчёт (README.md) и все артефакты в reports/eda_qc/<run-id>/
+
+Запуск:
+    python src/eda_qc.py
+    # или с явным каталогом вывода:
+    python src/eda_qc.py --outdir reports/eda_qc
+"""
 from __future__ import annotations
 
+import argparse
+import os
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from scipy.stats import chi2, ttest_ind
+from scipy.stats import chi2, chi2_contingency, ttest_ind
+from sklearn.compose import ColumnTransformer
 from sklearn.covariance import MinCovDet
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import roc_auc_score
 from sklearn.model_selection import GroupKFold, StratifiedKFold
-from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from statsmodels.stats.multitest import multipletests
 
-try:  # sklearn >= 1.1
+# безопасный импорт (sklearn>=1.1)
+try:
     from sklearn.model_selection import StratifiedGroupKFold
 except Exception:  # pragma: no cover
     StratifiedGroupKFold = None  # type: ignore
 
-# переключаем бэкенд уже ПОСЛЕ импортов (без E402)
+# backend без E402
 plt.switch_backend("Agg")
 
-
 # ---------- Пути / константы ----------
-
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PROCESSED = ROOT / "data" / "processed"
 TRAIN_PARQUET = DATA_PROCESSED / "train.parquet"
 EXT_PARQUET = DATA_PROCESSED / "external.parquet"
 
-REPORTS = ROOT / "reports"
-FIG_DIR = REPORTS / "figures"
-SUMMARY_TXT = REPORTS / "summary.txt"
-README_MD = REPORTS / "README.md"
-
-FIG_DIR.mkdir(parents=True, exist_ok=True)
-REPORTS.mkdir(parents=True, exist_ok=True)
-
 RANDOM_STATE = 42
+rng = np.random.default_rng(RANDOM_STATE)
+
 
 # ---------- Утилиты загрузки / выбор признаков ----------
-
-
 def _is_number_like(x) -> bool:
     if isinstance(x, (int, float, np.integer, np.floating)):
         return True
@@ -54,6 +65,20 @@ def _is_number_like(x) -> bool:
         return True
     except Exception:
         return False
+
+
+def pick_spectral_columns(df: pd.DataFrame) -> List:
+    """Столбцы-волновые числа, отсортированные по возрастанию."""
+    spec_cols = [c for c in df.columns if _is_number_like(c)]
+    return sorted(spec_cols, key=lambda c: float(c))
+
+
+def split_columns(df: pd.DataFrame) -> Tuple[List[str], List[str]]:
+    """Вернуть (spec_cols, meta_cols)."""
+    spec_cols = pick_spectral_columns(df)
+    service = {"y", "Label", "ID"}
+    meta_cols = [c for c in df.columns if c not in set(spec_cols) | service]
+    return spec_cols, meta_cols
 
 
 def load_processed() -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -69,15 +94,9 @@ def load_processed() -> Tuple[pd.DataFrame, pd.DataFrame]:
     return df_train, df_ext
 
 
-def pick_spectral_columns(df: pd.DataFrame) -> List:
-    """Столбцы-волновые числа, отсортированные по возрастанию."""
-    spec_cols = [c for c in df.columns if _is_number_like(c)]
-    return sorted(spec_cols, key=lambda c: float(c))
-
-
-def get_xy_wns(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series, np.ndarray]:
-    """Вернуть (X, y, wns) из датафрейма."""
-    spec_cols = pick_spectral_columns(df)
+def get_xy_wns(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series, np.ndarray, List[str]]:
+    """Вернуть (X, y, wns, meta_cols) из датафрейма."""
+    spec_cols, meta_cols = split_columns(df)
     X = df[spec_cols].copy()
     if "y" in df.columns:
         y = df["y"].astype(int)
@@ -86,25 +105,18 @@ def get_xy_wns(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series, np.ndarray]:
     else:
         raise ValueError("Не найдена колонка меток ('y' или 'Label').")
     wns = np.array([float(c) for c in spec_cols], dtype=float)
-    return X, y, wns
+    return X, y, wns, meta_cols
 
 
-# ---------- Welch t-test + BH-FDR + Cohen's d (устойчиво к NaN) ----------
-
-
+# ---------- Welch t-test + BH-FDR + Cohen's d ----------
 def ttest_curve(
     X: pd.DataFrame,
     y: pd.Series,
     wns: np.ndarray,
     min_n_per_group: int = 3,
 ) -> pd.DataFrame:
-    """
-    По каждому признаку делаем Welch t-test + BH-FDR.
-    Возвращает DataFrame:
-      wn, pval, qval, mean_pos, mean_neg, diff, effect_size, valid, reason
-    """
+    """Welch t-test по каждому признаку + BH-FDR + Cohen's d."""
     assert X.shape[1] == len(wns), "X и wns должны совпадать по числу признаков"
-
     pos = X[y == 1].to_numpy()
     neg = X[y == 0].to_numpy()
 
@@ -125,7 +137,6 @@ def ttest_curve(
 
     reason[~enough] = "too_few_obs"
     reason[enough & ~nonconst] = "zero_variance"
-    reason[valid] = ""
 
     idx = np.where(valid)[0]
     for j in idx:
@@ -141,7 +152,6 @@ def ttest_curve(
     mean_neg = np.nanmean(neg, axis=0)
     diff = mean_pos - mean_neg
 
-    # Cohen's d (pooled SD по классам, устойчиво к NaN)
     pooled = np.sqrt((vpos + vneg) / 2.0)
     effect = np.divide(diff, pooled, out=np.zeros_like(diff), where=pooled > 0)
 
@@ -176,7 +186,7 @@ def plot_qvalues(df_p: pd.DataFrame, path: Path) -> None:
 
 
 def plot_volcano(df_p: pd.DataFrame, path: Path) -> None:
-    """Volcano: |Cohen's d| по X и -log10(q) по Y."""
+    """Volcano: |Cohen's d| vs -log10(q)."""
     plt.figure(figsize=(6, 5))
     x = np.abs(df_p["effect_size"].values)
     y = -np.log10(df_p["qval"].values + 1e-300)
@@ -190,8 +200,6 @@ def plot_volcano(df_p: pd.DataFrame, path: Path) -> None:
 
 
 # ---------- Нормализации и ROC-AUC по CV (group-aware) ----------
-
-
 def norm_none(X: np.ndarray) -> np.ndarray:
     return X
 
@@ -230,22 +238,19 @@ def _iter_splits(
     groups: np.ndarray | None,
     n_splits: int,
 ) -> List[Tuple[np.ndarray, np.ndarray]]:
-    """Стратегия разбиения: при наличии повторов ID — группированная CV."""
+    """Разбиение: при наличии повторов ID — группированная CV."""
     if groups is None:
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=RANDOM_STATE)
         return list(skf.split(np.zeros_like(y), y))
 
-    # если все ID уникальны — обычная стратификация
     if pd.Series(groups).value_counts().max() == 1:
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=RANDOM_STATE)
         return list(skf.split(np.zeros_like(y), y))
 
-    # попытаться использовать StratifiedGroupKFold (если доступен)
     if StratifiedGroupKFold is not None:
         sgkf = StratifiedGroupKFold(n_splits=n_splits, shuffle=True, random_state=RANDOM_STATE)
         return list(sgkf.split(np.zeros_like(y), y, groups))
 
-    # fallback: GroupKFold без стратификации (будет небольшой дисбаланс)
     gkf = GroupKFold(n_splits=n_splits)
     return list(gkf.split(np.zeros_like(y), y, groups))
 
@@ -297,13 +302,8 @@ def plot_norm_auc(df_norm: pd.DataFrame, path: Path) -> None:
 
 
 # ---------- Реплики (внешние): пары + сводка по ID ----------
-
-
 def replicate_distances(df_ext: pd.DataFrame, spec_cols: List) -> pd.DataFrame:
-    """
-    Для каждого ID считаем попарные L2-дистанции между его повторами.
-    Возвращает таблицу: ID, pair, dist.
-    """
+    """Для каждого ID считаем попарные L2-дистанции между его повторами."""
     arr = df_ext[spec_cols].to_numpy(float)
     ids = (
         df_ext["ID"].astype(str).to_numpy()
@@ -342,7 +342,6 @@ def replicate_summary(df_pairs: pd.DataFrame) -> pd.DataFrame:
 
     g = df_pairs.groupby("ID")["dist"]
     n_pairs = g.size()
-    # n_reps из n_pairs = n_reps*(n_reps-1)/2
     n_reps = ((1.0 + np.sqrt(1.0 + 8.0 * n_pairs.values)) / 2.0).round().astype(int)
 
     summary = pd.DataFrame(
@@ -382,34 +381,25 @@ def plot_replicate_hist(df_pairs: pd.DataFrame, path: Path) -> None:
     plt.close()
 
 
-# ---------- Робастные выбросы (PCA -> MinCovDet) ----------
-
-
+# ---------- Робастные выбросы ----------
 def robust_outliers(
     X: pd.DataFrame,
     ids: pd.Series | None = None,
     top_k: int = 5,
     max_components: int = 30,
 ) -> pd.DataFrame:
-    """
-    SNV/стандартизация -> PCA(whiten) -> MinCovDet.
-    Возвращает топ-k с маркировкой is_outlier по χ² порогу.
-    """
+    """SNV/стандартизация -> PCA(whiten) -> MinCovDet. Возвращает топ-k."""
     Xf = X.to_numpy(float)
     n_samples, n_features = Xf.shape
     n_comp = min(max_components, max(2, n_samples - 5), n_features)
 
     scaler = StandardScaler(with_mean=True, with_std=True)
     Xz = scaler.fit_transform(Xf)
-
-    # whitening стабилизирует шкалу компонент
     Xp = PCA(n_components=n_comp, whiten=True, random_state=RANDOM_STATE).fit_transform(Xz)
-
     mcd = MinCovDet(random_state=RANDOM_STATE, support_fraction=None).fit(Xp)
     dist2 = mcd.mahalanobis(Xp)
 
-    # теоретический порог для квадратов Махаланобиса
-    cutoff = float(chi2.ppf(0.999, df=n_comp))  # 99.9% квантиль
+    cutoff = float(chi2.ppf(0.999, df=n_comp))  # 99.9%
 
     order = np.argsort(dist2)[::-1][: min(top_k, len(dist2))]
     res = pd.DataFrame(
@@ -427,10 +417,94 @@ def robust_outliers(
     return res
 
 
+# ---------- Метаданные / конфаундеры ----------
+def analyze_metadata(
+    df: pd.DataFrame, y: pd.Series, meta_cols: List[str], groups: pd.Series | None
+) -> Tuple[pd.DataFrame, float | None]:
+    """
+    Таблица по метаданным (тип, тест, p/q, эффект) + AUC метамодели.
+    Эффект:
+      - numeric: стандарт. разница средних (SMD)
+      - categorical: Cramer's V
+    """
+    if not meta_cols:
+        return pd.DataFrame(columns=["feature", "type", "test", "pval", "qval", "effect"]), None
+
+    rows = []
+    for c in meta_cols:
+        s = df[c]
+        if pd.api.types.is_numeric_dtype(s):
+            pos = s[y == 1].astype(float)
+            neg = s[y == 0].astype(float)
+            pv = ttest_ind(pos, neg, equal_var=False, nan_policy="omit").pvalue
+            m1, m0 = np.nanmean(pos), np.nanmean(neg)
+            v1, v0 = np.nanvar(pos, ddof=1), np.nanvar(neg, ddof=1)
+            sd = np.sqrt((v1 + v0) / 2.0) if np.isfinite(v1 + v0) else np.nan
+            smd = (m1 - m0) / sd if (sd and sd > 0) else 0.0
+            rows.append(dict(feature=c, type="numeric", test="Welch t", pval=pv, effect=abs(smd)))
+        else:
+            ct = pd.crosstab(s.fillna("NA"), y)
+            if ct.shape[0] > 1 and ct.shape[1] > 1:
+                chi2_stat, pv, _, _ = chi2_contingency(ct)
+                n = ct.values.sum()
+                phi2 = chi2_stat / n
+                r, k = ct.shape
+                # коррекция Бенакри-Грина для Cramer's V
+                phi2corr = max(0, phi2 - (k - 1) * (r - 1) / (n - 1))
+                rcorr = r - (r - 1) ** 2 / (n - 1)
+                kcorr = k - (k - 1) ** 2 / (n - 1)
+                cramers_v = np.sqrt(phi2corr / max(rcorr - 1, kcorr - 1))
+                rows.append(
+                    dict(feature=c, type="categorical", test="chi2", pval=pv, effect=cramers_v)
+                )
+            else:
+                rows.append(dict(feature=c, type="categorical", test="chi2", pval=1.0, effect=0.0))
+
+    df_meta = pd.DataFrame(rows)
+    if len(df_meta):
+        df_meta["qval"] = multipletests(df_meta["pval"].values, method="fdr_bh")[1]
+    else:
+        df_meta["qval"] = []
+
+    # AUC метамодели (logreg на метаданых, one-hot, group-aware CV)
+    auc_meta = None
+    try:
+        Xmeta = df[meta_cols].copy()
+        num_cols = [c for c in meta_cols if pd.api.types.is_numeric_dtype(Xmeta[c])]
+        cat_cols = [c for c in meta_cols if c not in num_cols]
+
+        pre = ColumnTransformer(
+            transformers=[
+                ("num", StandardScaler(with_mean=True, with_std=True), num_cols),
+                ("cat", OneHotEncoder(handle_unknown="ignore"), cat_cols),
+            ],
+            remainder="drop",
+        )
+        pipe = Pipeline(
+            steps=[
+                ("pre", pre),
+                ("clf", LogisticRegression(max_iter=500, n_jobs=1, random_state=RANDOM_STATE)),
+            ]
+        )
+
+        # сбор фолдов
+        g = None if groups is None else groups.to_numpy()
+        y_np = y.to_numpy()
+        aucs: List[float] = []
+        for tr, te in _iter_splits(y_np, g, n_splits=5):
+            pipe.fit(Xmeta.iloc[tr], y_np[tr])
+            prob = pipe.predict_proba(Xmeta.iloc[te])[:, 1]
+            aucs.append(roc_auc_score(y_np[te], prob))
+        auc_meta = float(np.mean(aucs))
+    except Exception:
+        auc_meta = None
+
+    return df_meta, auc_meta
+
+
 # ---------- One-glance Markdown отчёт ----------
-
-
 def write_report_md(
+    out_dir: Path,
     df_train: pd.DataFrame,
     df_ext: pd.DataFrame,
     df_p: pd.DataFrame,
@@ -438,46 +512,45 @@ def write_report_md(
     df_pairs: pd.DataFrame,
     df_rep: pd.DataFrame,
     df_out: pd.DataFrame,
+    df_meta: pd.DataFrame,
+    auc_meta: float | None,
 ) -> None:
-    """Сформировать one-glance отчёт в reports/README.md."""
     lines: List[str] = []
+    fig = out_dir / "figures"
 
-    # Заголовок
     lines.append("# QC / EDA summary")
     lines.append("")
-
-    # Dataset
     lines.append("## Dataset")
     lines.append(f"- train shape: **{df_train.shape}**")
     lines.append(f"- external shape: **{df_ext.shape}**")
     lines.append(f"- spectral features: **{df_p.shape[0]}**")
     lines.append("")
 
-    # T-test + BH-FDR
+    # T-test
     n_total = len(df_p)
     n_valid = int(df_p["valid"].sum())
     n_sig = int((df_p["qval"] < 0.05).sum())
-
     lines.append("## T-test (Welch) + BH-FDR")
     lines.append(f"- total features: **{n_total}**, valid: **{n_valid}**, q<0.05: **{n_sig}**")
-    lines.append("- Figure: [q-values](./figures/qc_04_pvalues.png)")
-    lines.append("- Table: [ttest_curve.csv](./ttest_curve.csv)")
+    lines.append(f"- Figure: [q-values]({(fig / 'qc_04_pvalues.png').as_posix()})")
+    lines.append(f"- Figure: [volcano]({(fig / 'qc_05_volcano.png').as_posix()})")
+    lines.append(f"- Table: [ttest_curve.csv]({(out_dir / 'ttest_curve.csv').as_posix()})")
     lines.append("")
 
-    # Normalization vs ROC-AUC (group-aware CV)
+    # Normalizations
     lines.append("## Normalization vs ROC-AUC (group-aware CV)")
     if len(df_norm):
         best = df_norm.iloc[0]
-        ranking = ", ".join(f"{row.scheme}={row.roc_auc:.3f}" for row in df_norm.itertuples())
+        ranking = ", ".join(f"{r.scheme}={r.roc_auc:.3f}" for r in df_norm.itertuples())
         lines.append(f"- ranking: {ranking}")
         lines.append(f"- best: **{best.scheme} ({best.roc_auc:.3f})**")
-        lines.append("- Figure: [qc_06_norm_auc.png](./figures/qc_06_norm_auc.png)")
-        lines.append("- Table: [norm_auc.csv](./norm_auc.csv)")
+        lines.append(f"- Figure: [qc_06_norm_auc.png]({(fig / 'qc_06_norm_auc.png').as_posix()})")
+        lines.append(f"- Table: [norm_auc.csv]({(out_dir / 'norm_auc.csv').as_posix()})")
     else:
         lines.append("- no CV results available")
     lines.append("")
 
-    # Replicates (external) — агрегированная сводка по ID
+    # Replicates (external)
     lines.append("## Replicates (external)")
     if df_pairs.empty or df_rep.empty:
         lines.append("- no replicate pairs found")
@@ -486,19 +559,28 @@ def write_report_md(
         med_cv = df_rep["cv_dist"].median() if "cv_dist" in df_rep.columns else float("nan")
         lines.append(
             f"- IDs with replicates: **{df_rep.shape[0]}** | "
-            f"median(mean_dist): **{med_mean:.3f}** | "
-            f"median(cv): **{med_cv:.3f}**"
+            f"median(mean_dist): **{med_mean:.3f}** | median(cv): **{med_cv:.3f}**"
         )
-        lines.append("- Worst pair per ID is recorded in `worst_pair` and `max_dist`.")
-        lines.append("- Figure: [replicate histogram](./figures/qc_07_replicate_dist.png)")
-        lines.append("- Pairwise: [replicate_distances.csv](./replicate_distances.csv)")
-        lines.append("- Per-ID summary: [external_replicates.csv](./external_replicates.csv)")
+        lines.append(
+            "- Figure: [replicate histogram]("
+            f"{(fig / 'qc_07_replicate_dist.png').as_posix()}"
+            ")"
+        )
+        lines.append(
+            "- Pairwise: [replicate_distances.csv]("
+            f"{(out_dir / 'replicate_distances.csv').as_posix()}"
+            ")"
+        )
+        lines.append(
+            "- Per-ID summary: [external_replicates.csv]("
+            f"{(out_dir / 'external_replicates.csv').as_posix()}"
+            ")"
+        )
     lines.append("")
 
-    # Robust outliers (train) — с χ²-порогом
+    # Outliers
     lines.append("## Robust outliers (train)")
     if len(df_out):
-        # если есть поля cutoff/df и флаг is_outlier — отобразим
         cutoff = (
             float(df_out["cutoff_chi2"].iloc[0])
             if "cutoff_chi2" in df_out.columns and len(df_out)
@@ -510,19 +592,35 @@ def write_report_md(
         if "is_outlier" in df_out.columns:
             n_flag = int(df_out["is_outlier"].sum())
             lines.append(f"- flagged among top-{len(df_out)}: **{n_flag}**")
-
-        top_list = []
+        top = []
         for r in df_out.itertuples(index=False):
             rid = f" (ID={r.ID})" if "ID" in df_out.columns else ""
             mark = " *" if "is_outlier" in df_out.columns and r.is_outlier else ""
-            top_list.append(f"{r.index}{rid}{mark}")
-        lines.append("- top indices: " + ", ".join(top_list))
-        lines.append("- Table: [outliers_train.csv](./outliers_train.csv)")
+            top.append(f"{r.index}{rid}{mark}")
+        lines.append("- top indices: " + ", ".join(top))
+        lines.append(
+            f"- Table: [outliers_train.csv]({(out_dir / 'outliers_train.csv').as_posix()})"
+        )
     else:
         lines.append("- no outliers table produced")
     lines.append("")
 
-    # Примечания
+    # Metadata
+    lines.append("## Metadata / confounders")
+    if len(df_meta):
+        n_sigm = int((df_meta["qval"] < 0.05).sum())
+        lines.append(f"- meta columns: **{len(df_meta)}**, q<0.05: **{n_sigm}**")
+        if auc_meta is not None:
+            lines.append(
+                f"- baseline AUC using *only* metadata: **{auc_meta:.3f}** (group-aware CV)"
+            )
+        lines.append(
+            f"- Table: [metadata_summary.csv]({(out_dir / 'metadata_summary.csv').as_posix()})"
+        )
+    else:
+        lines.append("- no metadata found")
+    lines.append("")
+
     lines.append("---")
     lines.append(
         "_Note_: CV is **group-aware** (by `ID`) to avoid data leakage. "
@@ -530,61 +628,88 @@ def write_report_md(
     )
     lines.append("")
 
-    # Сохранение
-    out_md = REPORTS / "README.md"
-    out_md.write_text("\n".join(lines), encoding="utf-8")
-
-    README_MD.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (out_dir / "README.md").write_text("\n".join(lines), encoding="utf-8")
 
 
 # ---------- Главный сценарий ----------
-
-
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--outdir",
+        type=str,
+        default=str(ROOT / "reports" / "eda_qc"),
+        help="Базовая папка для артефактов EDA/QC (будет создан подпапкой с таймстампом)",
+    )
+    args = parser.parse_args()
+
+    # каталог вывода: reports/eda_qc/<run-id>/
+    run_id = datetime.now().strftime("%Y%m%d-%H%M")
+    base_out = Path(args.outdir)
+    out_dir = base_out / run_id
+    fig_dir = out_dir / "figures"
+    fig_dir.mkdir(parents=True, exist_ok=True)
+
+    # "latest" симлинк (best-effort)
+    try:
+        latest = base_out / "latest"
+        if latest.is_symlink() or latest.exists():
+            latest.unlink()
+        os.symlink(out_dir.name, latest, target_is_directory=True)
+    except Exception:
+        # если нет прав на symlink — просто игнор
+        pass
+
+    # 0) Data
     df_train, df_ext = load_processed()
-    X, y, wns = get_xy_wns(df_train)
-    spec_cols = pick_spectral_columns(df_ext)
+    X, y, wns, meta_cols = get_xy_wns(df_train)
+    spec_cols_ext, _ = split_columns(df_ext)
 
     print(f"train shape: {df_train.shape}, external shape: {df_ext.shape}")
     print(f"n_features (spectral): {X.shape[1]}")
 
-    # 1) t-test + BH-FDR (+ Cohen's d)
+    # 1) t-test + BH-FDR (+ Volcano)
     df_p = ttest_curve(X, y, wns)
-    df_p.to_csv(REPORTS / "ttest_curve.csv", index=False)
-    plot_qvalues(df_p, FIG_DIR / "qc_04_pvalues.png")
-    plot_volcano(df_p, FIG_DIR / "qc_05_volcano.png")
+    df_p.to_csv(out_dir / "ttest_curve.csv", index=False)
+    plot_qvalues(df_p, fig_dir / "qc_04_pvalues.png")
+    plot_volcano(df_p, fig_dir / "qc_05_volcano.png")
     n_total = len(df_p)
     n_valid = int(df_p["valid"].sum())
     n_sig = int((df_p["qval"] < 0.05).sum())
 
-    # 2) Нормализации (group-aware CV, чтобы не утекали ID)
+    # 2) Нормализации (group-aware CV)
     groups = df_train["ID"] if "ID" in df_train.columns else None
     df_norm = compare_normalizations(X, y, groups)
-    df_norm.to_csv(REPORTS / "norm_auc.csv", index=False)
-    plot_norm_auc(df_norm, FIG_DIR / "qc_06_norm_auc.png")
+    df_norm.to_csv(out_dir / "norm_auc.csv", index=False)
+    plot_norm_auc(df_norm, fig_dir / "qc_06_norm_auc.png")
 
     # 3) Реплики: пары и сводка по ID
-    df_pairs = replicate_distances(df_ext, spec_cols)
-    df_pairs.to_csv(REPORTS / "replicate_distances.csv", index=False)
-    plot_replicate_hist(df_pairs, FIG_DIR / "qc_07_replicate_dist.png")
+    df_pairs = replicate_distances(df_ext, spec_cols_ext)
+    df_pairs.to_csv(out_dir / "replicate_distances.csv", index=False)
+    plot_replicate_hist(df_pairs, fig_dir / "qc_07_replicate_dist.png")
     df_rep = replicate_summary(df_pairs)
-    df_rep.to_csv(REPORTS / "external_replicates.csv", index=False)
+    df_rep.to_csv(out_dir / "external_replicates.csv", index=False)
 
-    # 4) Робастные выбросы (SNV -> PCA -> MCD)
+    # 4) Выбросы (SNV -> PCA -> MCD)
     X_snv = pd.DataFrame(norm_snv(X.to_numpy(float)), index=X.index, columns=X.columns)
     ids_series = df_train["ID"] if "ID" in df_train.columns else None
     df_out = robust_outliers(X_snv, ids_series, top_k=5)
-    df_out.to_csv(REPORTS / "outliers_train.csv", index=False)
+    df_out.to_csv(out_dir / "outliers_train.csv", index=False)
 
-    # 5) Короткая сводка в .txt
+    # 5) Метаданные / конфаундеры
+    df_meta, auc_meta = analyze_metadata(df_train, y, meta_cols, groups)
+    if len(df_meta):
+        df_meta.sort_values("qval").to_csv(out_dir / "metadata_summary.csv", index=False)
+
+    # 6) Короткая текстовая сводка
     summ: List[str] = []
     summ.append(f"train shape: {df_train.shape}, external shape: {df_ext.shape}")
     summ.append(f"n wavenumbers: {X.shape[1]}")
     summ.append(f"ttest: total={n_total}, valid={n_valid}, q<0.05={n_sig}")
-    summ.append(
-        "AUC by normalization: "
-        + ", ".join(f"{row.scheme}={row.roc_auc:.3f}" for row in df_norm.itertuples())
-    )
+    if len(df_norm):
+        summ.append(
+            "AUC by normalization: "
+            + ", ".join(f"{row.scheme}={row.roc_auc:.3f}" for row in df_norm.itertuples())
+        )
     if not df_pairs.empty:
         summ.append(
             "replicates (per-ID): "
@@ -595,12 +720,15 @@ def main() -> None:
         best = df_out.iloc[0]
         sid = f", ID={best['ID']}" if "ID" in df_out.columns else ""
         summ.append(f"top outlier: idx={best['index']}{sid}, dist2={best['dist2']:.3f}")
-    SUMMARY_TXT.write_text("\n".join(summ) + "\n", encoding="utf-8")
+    if auc_meta is not None:
+        summ.append(f"metadata-only AUC: {auc_meta:.3f}")
+    (out_dir / "summary.txt").write_text("\n".join(summ) + "\n", encoding="utf-8")
     print("\n".join(summ))
-    print(f"Figures -> {FIG_DIR}")
+    print(f"Figures -> {fig_dir}")
 
-    # 6) One-glance Markdown отчёт
+    # 7) README one-glance
     write_report_md(
+        out_dir=out_dir,
         df_train=df_train,
         df_ext=df_ext,
         df_p=df_p,
@@ -608,6 +736,8 @@ def main() -> None:
         df_pairs=df_pairs,
         df_rep=df_rep,
         df_out=df_out,
+        df_meta=df_meta,
+        auc_meta=auc_meta,
     )
 
 
