@@ -1,0 +1,6 @@
+train shape: (61, 253), external shape: (183, 252)
+n wavenumbers: 251
+ttest: total=251, valid=251, q<0.05=0
+AUC by normalization: snv=0.906, l2=0.891, minmax=0.853, none=0.763
+replicates (per-ID): mean(mean_dist)=1.1323, median(mean_dist)=0.9704
+top outlier: idx=22, ID=N23, dist2=10988.212
