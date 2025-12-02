@@ -25,3 +25,6 @@ reports/**
 .env
 mlflow.db
 mlruns/
+
+!/reports/eda_qc/
+!/reports/eda_qc/**
