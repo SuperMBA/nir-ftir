@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """
-Baseline models + train-only augmentations (COVID-saliva).
+Baseline models + train-only augmentations.
 Outputs: reports/exp/<timestamp>/*
 
 Usage:
-  python src/train_baselines.py --norm snv --n-splits 5 --val-size 0.2 \
+  python src/train_baselines.py --dataset covid_saliva --norm snv --n-splits 5 --val-size 0.2 \
     --noise 0.01 --shift 2.0 --mixup 0.4 --crop-min 900 --crop-max 1800
 """
 from __future__ import annotations
@@ -24,8 +24,10 @@ from sklearn.metrics import (
     balanced_accuracy_score,
     brier_score_loss,
     f1_score,
+    precision_recall_curve,
     recall_score,
     roc_auc_score,
+    roc_curve,
 )
 from sklearn.model_selection import GroupKFold, StratifiedGroupKFold, train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -40,7 +42,11 @@ except Exception:
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PROCESSED = ROOT / "data" / "processed"
-TRAIN_PARQUET = DATA_PROCESSED / "train.parquet"
+
+DATASETS = {
+    "covid_saliva": DATA_PROCESSED / "train.parquet",
+    # "diabetes_saliva": DATA_PROCESSED / "train_diabetes.parquet",  # добавим позже
+}
 
 
 # ---------- utils ----------
@@ -130,7 +136,7 @@ def iter_cv_splits(y: np.ndarray, groups: np.ndarray, n_splits: int, seed: int =
         yield from gkf.split(np.zeros_like(y), y, groups)
 
 
-# ---------- metrics ----------
+# ---------- metrics & calibration ----------
 def compute_metrics(y_true, prob) -> Dict[str, float]:
     y_pred = (prob >= 0.5).astype(int)
     return {
@@ -141,6 +147,34 @@ def compute_metrics(y_true, prob) -> Dict[str, float]:
         "roc_auc": roc_auc_score(y_true, prob),
         "brier": brier_score_loss(y_true, prob),
     }
+
+
+def confusion_dict(y_true: np.ndarray, prob: np.ndarray, thr: float = 0.5) -> Dict[str, int]:
+    y_pred = (prob >= thr).astype(int)
+    tp = int(((y_true == 1) & (y_pred == 1)).sum())
+    tn = int(((y_true == 0) & (y_pred == 0)).sum())
+    fp = int(((y_true == 0) & (y_pred == 1)).sum())
+    fn = int(((y_true == 1) & (y_pred == 0)).sum())
+    return {"TP": tp, "TN": tn, "FP": fp, "FN": fn}
+
+
+def ece_score(y_true: np.ndarray, prob: np.ndarray, n_bins: int = 10):
+    """Expected Calibration Error + данные для reliability diagram."""
+    bins = np.linspace(0.0, 1.0, n_bins + 1)
+    idx = np.clip(np.digitize(prob, bins) - 1, 0, n_bins - 1)
+    ece = 0.0
+    bin_stats = []
+    for b in range(n_bins):
+        mask = idx == b
+        if not np.any(mask):
+            bin_stats.append({"bin": b, "count": 0, "conf": None, "acc": None})
+            continue
+        conf = float(prob[mask].mean())
+        acc = float(y_true[mask].mean())
+        w = float(mask.mean())  # доля объектов в бине
+        ece += w * abs(acc - conf)
+        bin_stats.append({"bin": b, "count": int(mask.sum()), "conf": conf, "acc": acc})
+    return float(ece), {"bins": bin_stats}
 
 
 # ---------- models ----------
@@ -174,7 +208,7 @@ def build_augmented_train(
     shift: float,
     mixup_alpha: float,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Возвращает (X_all, y_all_hard). Все метки — ЖЁСТКИЕ (0/1)."""
+    """Возвращает (X_all, y_all_hard). ВСЕ метки — ЖЁСТКИЕ (0/1)."""
     X_parts = [Xtr]
     y_parts = [ytr.astype(int)]
 
@@ -188,8 +222,8 @@ def build_augmented_train(
 
     if mixup_alpha > 0:
         Xm, ym_soft = aug_mixup(Xtr, ytr, mixup_alpha)
-        y_parts.append(mixup_to_hard_labels(ym_soft))  # важный фикс: только хард-метки
         X_parts.append(Xm)
+        y_parts.append(mixup_to_hard_labels(ym_soft))  # <- критично
 
     X_all = np.vstack(X_parts)
     y_all = np.concatenate(y_parts).astype(int)
@@ -199,6 +233,7 @@ def build_augmented_train(
 # ---------- main ----------
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--dataset", default="covid_saliva", choices=list(DATASETS.keys()))
     ap.add_argument("--norm", default="snv", choices=["none", "snv"])
     ap.add_argument("--n-splits", type=int, default=5)
     ap.add_argument("--val-size", type=float, default=0.2)
@@ -213,7 +248,11 @@ def main():
     out_dir = ROOT / "reports" / "exp" / ts
     (out_dir / "figures").mkdir(parents=True, exist_ok=True)
 
-    df = pd.read_parquet(TRAIN_PARQUET)
+    parquet_path = DATASETS[args.dataset]
+    if not parquet_path.exists():
+        raise FileNotFoundError(f"Dataset parquet not found: {parquet_path}")
+
+    df = pd.read_parquet(parquet_path)
     spec_cols = pick_spectral_columns(df)
 
     Xdf = df[spec_cols].copy()
@@ -233,7 +272,7 @@ def main():
     idx_tr, idx_te = patient_level_split(df, val_size=args.val_size, seed=42)
     X_tr = Xdf.iloc[idx_tr].to_numpy(float)
     y_tr = y[idx_tr]
-    g_tr = groups[idx_tr]  # используется в StratifiedGroupKFold
+    g_tr = groups[idx_tr]
     X_te = Xdf.iloc[idx_te].to_numpy(float)
     y_te = y[idx_te]
 
@@ -249,7 +288,7 @@ def main():
         Xtr, ytr = X_tr[tr], y_tr[tr]
         Xva, yva = X_tr[va], y_tr[va]
 
-        # train-only aug → только жёсткие метки
+        # train-only aug → всегда жёсткие метки
         Xtr_all, ytr_all = build_augmented_train(
             Xtr, ytr, wns, noise=args.noise, shift=args.shift, mixup_alpha=args.mixup
         )
@@ -260,14 +299,12 @@ def main():
 
         for name, model in models.items():
             model.fit(Xtr_s, ytr_all)  # все модели получают 0/1
-            prob = (
-                model.predict_proba(Xva_s)[:, 1]
-                if hasattr(model, "predict_proba")
-                else model.decision_function(Xva_s)
-            )
-            # если decision_function — приведём к [0,1] через логистическую сигмоиду
-            if prob.ndim == 1 and (prob.min() < 0 or prob.max() > 1):
-                prob = 1.0 / (1.0 + np.exp(-prob))
+            if hasattr(model, "predict_proba"):
+                prob = model.predict_proba(Xva_s)[:, 1]
+            else:
+                # на всякий случай
+                score = model.decision_function(Xva_s)
+                prob = 1.0 / (1.0 + np.exp(-score))
             all_rows.append({"fold": fold, "model": name, **compute_metrics(yva, prob)})
 
     res_df = pd.DataFrame(all_rows)
@@ -285,16 +322,38 @@ def main():
     Xte_s = scaler.transform(X_te)
 
     final_model.fit(Xtr_s, ytr_all)
-    prob_te = (
-        final_model.predict_proba(Xte_s)[:, 1]
-        if hasattr(final_model, "predict_proba")
-        else final_model.decision_function(Xte_s)
-    )
-    if prob_te.ndim == 1 and (prob_te.min() < 0 or prob_te.max() > 1):
-        prob_te = 1.0 / (1.0 + np.exp(-prob_te))
+    if hasattr(final_model, "predict_proba"):
+        prob_te = final_model.predict_proba(Xte_s)[:, 1]
+    else:
+        score_te = final_model.decision_function(Xte_s)
+        prob_te = 1.0 / (1.0 + np.exp(-score_te))
 
-    pd.DataFrame([{"model": best_name, **compute_metrics(y_te, prob_te)}]).to_csv(
-        out_dir / "test_metrics.csv", index=False
+    # test metrics
+    test_row = {"model": best_name, **compute_metrics(y_te, prob_te)}
+    pd.DataFrame([test_row]).to_csv(out_dir / "test_metrics.csv", index=False)
+
+    # confusion @0.5
+    json.dump(
+        confusion_dict(y_te, prob_te, thr=0.5),
+        open(out_dir / "confusion_test.json", "w"),
+        ensure_ascii=False,
+        indent=2,
+    )
+
+    # calibration: ECE + reliability bins
+    ece, cal_bins = ece_score(y_te, prob_te, n_bins=10)
+    json.dump(
+        {"ece": ece, "bins": cal_bins["bins"]},
+        open(out_dir / "calibration_test.json", "w"),
+        ensure_ascii=False,
+        indent=2,
+    )
+
+    # curves (ROC + PR) — компактно в NPZ
+    fpr, tpr, thr_roc = roc_curve(y_te, prob_te)
+    prec, rec, thr_pr = precision_recall_curve(y_te, prob_te)
+    np.savez_compressed(
+        out_dir / "curves.npz", fpr=fpr, tpr=tpr, thr_roc=thr_roc, prec=prec, rec=rec, thr_pr=thr_pr
     )
 
     # QC: real-vs-synthetic (должно быть близко к 0.5–0.6)
@@ -323,7 +382,9 @@ def main():
             indent=2,
         )
 
+    # save config
     cfg = dict(
+        dataset=args.dataset,
         norm=args.norm,
         n_splits=args.n_splits,
         val_size=args.val_size,

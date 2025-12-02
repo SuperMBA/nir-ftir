@@ -8,15 +8,26 @@ data/.DS_Store
 data/processed/**
 !data/processed/train.parquet
 !data/processed/external.parquet
+# !data/processed/train_diabetes.parquet   # раскомментируешь, когда появится
 
-# --- reports (все артефакты EDA/QC в репо) ---
-!reports/
+# --- reports: по умолчанию игнорируем всё
 reports/**
-!reports/*.csv
-!reports/summary.txt
-!reports/figures/
-!reports/figures/*.png
-!reports/README.md
+!reports/
+
+# Разрешаем EDA QC полностью
+!reports/eda_qc/
+!reports/eda_qc/**
+
+# Разрешаем ТОЛЬКО лёгкие файлы из exp/*
+!reports/exp/
+!reports/exp/**/
+!reports/exp/*/config.json
+!reports/exp/*/cv_metrics.csv
+!reports/exp/*/test_metrics.csv
+!reports/exp/*/qc_synthetic.json
+!reports/exp/*/confusion_test.json
+!reports/exp/*/calibration_test.json
+!reports/exp/*/curves.npz
 
 # --- служебное ---
 /__pycache__/
@@ -25,6 +36,3 @@ reports/**
 .env
 mlflow.db
 mlruns/
-
-!/reports/eda_qc/
-!/reports/eda_qc/**
