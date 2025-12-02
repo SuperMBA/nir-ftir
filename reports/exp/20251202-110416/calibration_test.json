@@ -1,0 +1,65 @@
+{
+  "ece": 0.3490650715028141,
+  "bins": [
+    {
+      "bin": 0,
+      "count": 0,
+      "conf": null,
+      "acc": null
+    },
+    {
+      "bin": 1,
+      "count": 1,
+      "conf": 0.18271917089633957,
+      "acc": 1.0
+    },
+    {
+      "bin": 2,
+      "count": 4,
+      "conf": 0.2666466259549993,
+      "acc": 0.5
+    },
+    {
+      "bin": 3,
+      "count": 0,
+      "conf": null,
+      "acc": null
+    },
+    {
+      "bin": 4,
+      "count": 2,
+      "conf": 0.48116871968695607,
+      "acc": 0.0
+    },
+    {
+      "bin": 5,
+      "count": 1,
+      "conf": 0.5,
+      "acc": 1.0
+    },
+    {
+      "bin": 6,
+      "count": 0,
+      "conf": null,
+      "acc": null
+    },
+    {
+      "bin": 7,
+      "count": 1,
+      "conf": 0.7016997301058843,
+      "acc": 0.0
+    },
+    {
+      "bin": 8,
+      "count": 4,
+      "conf": 0.8442213913067191,
+      "acc": 1.0
+    },
+    {
+      "bin": 9,
+      "count": 0,
+      "conf": null,
+      "acc": null
+    }
+  ]
+}
