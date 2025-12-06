@@ -14,16 +14,20 @@ data/processed/**
 reports/**
 !reports/
 
-# Разрешаем EDA QC полностью
+# EDA QC: храним только latest (симлинк/каталог)
 !reports/eda_qc/
-!reports/eda_qc/**
+reports/eda_qc/**
+!reports/eda_qc/latest/
+!reports/eda_qc/latest/**
 
-# Разрешаем ТОЛЬКО лёгкие файлы из exp/*
+# Разрешаем exp и ключевые файлы
 !reports/exp/
+!reports/exp/summary.csv
 !reports/exp/**/
 !reports/exp/*/config.json
 !reports/exp/*/cv_metrics.csv
 !reports/exp/*/test_metrics.csv
+!reports/exp/*/test_metrics_all.csv
 !reports/exp/*/qc_synthetic.json
 !reports/exp/*/confusion_test.json
 !reports/exp/*/calibration_test.json
