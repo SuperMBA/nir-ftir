@@ -1,29 +1,38 @@
-﻿# --- data ---
-data/raw/**
-data/interim/**
+﻿# ---------------- data ----------------
+
+# Сырые и промежуточные данные не храним в репозитории
+data/raw/
+data/interim/
 data/.DS_Store
 
-# allow processed
+# processed: по умолчанию игнорируем всё, кроме ключевых parquet
+data/processed/*
 !data/processed/
-data/processed/**
 !data/processed/train.parquet
 !data/processed/external.parquet
-# !data/processed/train_diabetes.parquet   # раскомментируешь, когда появится
+# когда появится отдельный train_diabetes.parquet — добавь аналогично:
+# !data/processed/train_diabetes.parquet
 
-# --- reports: по умолчанию игнорируем всё
-reports/**
+# ---------------- reports ----------------
+
+# По умолчанию не версионируем отчёты/артефакты
+reports/*
 !reports/
 
-# EDA QC: храним только latest (симлинк/каталог)
+# ---- EDA / QC ----
+# Храним только "latest" (то, что делает eda_qc.py),
+# а отдельные ран-ид каталоги игнорируем
+reports/eda_qc/*
 !reports/eda_qc/
-reports/eda_qc/**
 !reports/eda_qc/latest/
 !reports/eda_qc/latest/**
 
-# Разрешаем exp и ключевые файлы
+# ---- Experiments ----
+# Игнорим всё внутри reports/exp, кроме ключевых файлов
+reports/exp/*
 !reports/exp/
-!reports/exp/summary.csv
 !reports/exp/**/
+!reports/exp/summary.csv
 !reports/exp/*/config.json
 !reports/exp/*/cv_metrics.csv
 !reports/exp/*/test_metrics.csv
@@ -33,10 +42,25 @@ reports/eda_qc/**
 !reports/exp/*/calibration_test.json
 !reports/exp/*/curves.npz
 
-# --- служебное ---
-/__pycache__/
-/.ipynb_checkpoints/
-/.vscode/
+# ---------------- служебное / окружение ----------------
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# Виртуальные окружения
 .env
+.venv/
+venv/
+
+# MLflow и прочие артефакты трекинга
 mlflow.db
 mlruns/
