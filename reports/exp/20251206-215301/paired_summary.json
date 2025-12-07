@@ -1,0 +1,15 @@
+{
+  "F1_vs_baseline": {
+    "n": 5.0,
+    "mean_abs": 0.02841471571906353,
+    "mean_rel": 0.044571428571428554,
+    "wilcoxon_p_one_sided": 0.25
+  },
+  "ACC_vs_baseline": {
+    "n": 5.0,
+    "mean_abs": 0.013333333333333353,
+    "mean_rel": 0.019047619047619077,
+    "wilcoxon_p_one_sided": 0.5
+  },
+  "success_rule": "mean_rel >= 0.15 и p < 0.05 (one-sided)"
+}

@@ -715,24 +715,34 @@ def build_augmented_train(
     extra_syn: Optional[np.ndarray] = None,
     extra_syn_labels: Optional[np.ndarray] = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Compose augmented train set; each transform applied with prob p_apply."""
+    """
+    Собирает обучающую выборку с аугментациями.
+    Каждый тип аугментации применяется с вероятностью `aug.p_apply`.
+
+    Вся случайность идёт через глобальный np.random, который
+    уже посеян в set_global_seed(cfg.seed), так что запуски
+    с одним и тем же seed воспроизводимы.
+    """
     X_parts: List[np.ndarray] = [Xtr]
     y_parts: List[np.ndarray] = [ytr.astype(int)]
 
-    rng_local = np.random.default_rng()
-
     def maybe(flag: bool) -> bool:
-        return flag and (rng_local.random() < aug.p_apply)
+        # используем глобальный генератор, посеянный set_global_seed
+        return flag and (np.random.rand() < aug.p_apply)
 
+    # --- классические аугментации ---
     if maybe(aug.noise_std > 0):
         X_parts.append(aug_noise_std(Xtr, aug.noise_std))
         y_parts.append(ytr)
+
     if maybe(aug.noise_med > 0):
         X_parts.append(aug_noise_med(Xtr, aug.noise_med))
         y_parts.append(ytr)
+
     if maybe(aug.shift > 0):
         X_parts.append(aug_shift_interp(Xtr, wns, aug.shift))
         y_parts.append(ytr)
+
     if maybe(aug.mixup > 0):
         Xm, ym_soft = aug_mixup(Xtr, ytr, aug.mixup)
         X_parts.append(Xm)
@@ -741,6 +751,7 @@ def build_augmented_train(
         else:
             y_parts.append(ym_soft)
 
+    # --- генеративные синтетики (VAE/WGAN), если есть ---
     if extra_syn is not None and extra_syn_labels is not None and len(extra_syn) > 0:
         X_parts.append(extra_syn)
         y_parts.append(extra_syn_labels.astype(int))
@@ -790,6 +801,8 @@ class RunConfig:
     gan_steps: int
     vae_steps: int
     syn_mult: float
+    max_train_patients: Optional[int]
+    train_pos_fraction: Optional[float]
 
 
 # -------------------- I/O helpers --------------------
@@ -1293,6 +1306,22 @@ def main() -> None:
     )
     ap.add_argument("--recall-target", type=float, default=0.85)
 
+    ap.add_argument(
+        "--max-train-patients",
+        type=int,
+        default=None,
+        help="Ограничить число уникальных ID в train (small-sample эксперименты).",
+    )
+    ap.add_argument(
+        "--train-pos-fraction",
+        type=float,
+        default=None,
+        help=(
+            "Приблизительно задать долю позитивов в train, "
+            "downsample majority-класс (например 0.2, 0.3)."
+        ),
+    )
+
     # QC synthetic
     ap.add_argument(
         "--qc-filter",
@@ -1394,6 +1423,8 @@ def main() -> None:
         gan_steps=args.gan_steps,
         vae_steps=args.vae_steps,
         syn_mult=args.syn_mult,
+        max_train_patients=args.max_train_patients,
+        train_pos_fraction=args.train_pos_fraction,
     )
 
     # ---- load data
@@ -1403,6 +1434,59 @@ def main() -> None:
     idx_tr, idx_te = patient_level_split(df, val_size=cfg.val_size, seed=cfg.seed)
     X_tr, y_tr, g_tr = X_all[idx_tr], y_all[idx_tr], groups_all[idx_tr]
     X_te, y_te = X_all[idx_te], y_all[idx_te]
+
+    # ---- Small-sample режим: ограничить число уникальных ID в train
+    if cfg.max_train_patients is not None:
+        rng_limit = np.random.default_rng(cfg.seed)
+        unique_ids = np.unique(g_tr)
+        if cfg.max_train_patients < len(unique_ids):
+            chosen = rng_limit.choice(
+                unique_ids,
+                size=cfg.max_train_patients,
+                replace=False,
+            )
+            mask = np.isin(g_tr, chosen)
+            X_tr, y_tr, g_tr = X_tr[mask], y_tr[mask], g_tr[mask]
+            print(
+                f"[small-train] using {cfg.max_train_patients} patients "
+                f"({mask.sum()} spectra) in train"
+            )
+
+        # ---- Усиленный дисбаланс: приблизительная доля позитивов в train
+    if cfg.train_pos_fraction is not None:
+        p = cfg.train_pos_fraction
+        if not (0.0 < p < 1.0):
+            raise ValueError("--train-pos-fraction must be in (0, 1)")
+        pos_mask = y_tr == 1
+        neg_mask = ~pos_mask
+        n_pos = int(pos_mask.sum())
+        n_neg = int(neg_mask.sum())
+        if n_pos == 0 or n_neg == 0:
+            print("[imbalance] train has only one class, skip rebalancing")
+        else:
+            # сколько негативов нужно, чтобы получилось примерно p
+            target_neg = int(round(n_pos * (1.0 - p) / p))
+            if target_neg >= n_neg:
+                print(
+                    "[imbalance] not enough negatives to reach desired fraction, "
+                    "keeping all samples"
+                )
+            else:
+                rng_imb = np.random.default_rng(cfg.seed + 1)
+                neg_idx = np.where(neg_mask)[0]
+                keep_neg = rng_imb.choice(neg_idx, size=target_neg, replace=False)
+                keep_mask = np.zeros_like(y_tr, dtype=bool)
+                keep_mask[pos_mask] = True
+                keep_mask[keep_neg] = True
+
+                X_tr, y_tr, g_tr = X_tr[keep_mask], y_tr[keep_mask], g_tr[keep_mask]
+                n_pos_new = int((y_tr == 1).sum())
+                n_neg_new = int((y_tr == 0).sum())
+                frac = n_pos_new / float(n_pos_new + n_neg_new)
+                print(
+                    f"[imbalance] downsampled negatives: pos={n_pos_new}, "
+                    f"neg={n_neg_new}, pos_frac≈{frac:.3f}"
+                )
 
     # ---- outer splits
     n_outer = len(np.unique(g_tr)) if cfg.loocv else cfg.n_splits

@@ -1,2 +1,0 @@
-model,recall_pos,f1_pos,pr_auc,bal_acc,roc_auc,brier
-logreg,0.875,0.875,0.9067956349206349,0.8375,0.875,0.12247946332175846

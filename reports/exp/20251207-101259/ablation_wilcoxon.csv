@@ -1,0 +1,7 @@
+aug,metric,delta_mean,wilcoxon_p
+noise_std,f1_pos,0.0232865105908584,0.5
+noise_med,f1_pos,0.017132664437012245,1.0
+shift,f1_pos,0.0009925558312654959,1.0
+mixup,f1_pos,-0.0009607783520827029,1.0
+mixup+shift,f1_pos,-0.0038461538461538546,1.0
+selected,f1_pos,0.0,1.0
