@@ -41,6 +41,7 @@ reports/exp/*
 !reports/exp/*/confusion_test.json
 !reports/exp/*/calibration_test.json
 !reports/exp/*/curves.npz
+!data/processed/diabetes_saliva.parquet
 
 # ---------------- служебное / окружение ----------------
 

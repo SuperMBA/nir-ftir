@@ -102,6 +102,8 @@ DEFAULT_DATASETS = {
     "covid_saliva": DATA_PROCESSED / "train.parquet",
     # вариант: учиться на репликах (нужен group-aware CV по ID)
     "covid_saliva_repl": DATA_PROCESSED / "train_repl.parquet",
+    # наш новый диабетический датасет слюны
+    "diabetes_saliva": DATA_PROCESSED / "diabetes_saliva.parquet",
 }
 
 
@@ -829,12 +831,18 @@ def load_dataset(cfg: RunConfig):
         Xdf = crop_range(Xdf, cfg.crop_min, cfg.crop_max)
         spec_cols = list(Xdf.columns)
 
+    # ---- целевая переменная
     if "y" in df.columns:
         y = df["y"].astype(int).values
+    elif "target" in df.columns:  # наш диабет
+        y = df["target"].astype(int).values
+    elif "label" in df.columns:
+        y = df["label"].astype(int).values
     elif "Label" in df.columns:
+        # формат covid Excel'ей: Negative / Positive
         y = df["Label"].map({"Negative": 0, "Positive": 1}).astype(int).values
     else:
-        raise ValueError("Dataset must contain column 'y' or 'Label'.")
+        raise ValueError("Dataset must contain column 'y', 'target' or 'Label'.")
 
     if "ID" in df.columns:
         groups = df["ID"].astype(str).values
