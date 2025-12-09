@@ -6,6 +6,8 @@
 - диагностика по FTIR-спектрам **слюны** (COVID-19, диабет 2 типа);
 - перенос пайплайна на собственные спектры **жидкости десневой борозды (ГДБ)**.
 
+Python 3.11, зависимости — env.yml (mamba/conda).
+
 ---
 
 ## 1. Данные
@@ -81,7 +83,7 @@
 
 ---
 
-## 3. Статус на сейчас
+## 3. Статус работы
 
 1. **COVID-слюна:**
    - данные очищены, приведены к единому формату (parquet);
@@ -101,13 +103,15 @@
 
 ## 4. Быстрый старт (для воспроизведения)
 
-```bash
+# 1) создать окружение
+mamba env create -f env.yml
+mamba activate ftir311
 cd /work/nir-ftir
 
-# (один раз) подготовка диабет-датасета
-python -m src.preprocess_diabetes_saliva
+# 2) подготовить COVID-данные
+python -m src.prepare_data
 
-# базовый эксперимент на COVID
+# 3) запустить базовый COVID-эксперимент
 python -m src.train_baselines \
   --data-path data/processed/train.parquet \
   --crop-min 900 --crop-max 1800 \
@@ -126,8 +130,10 @@ python -m src.train_baselines \
   --qc-knn-min 0.60 \
   --bootstrap 500
 
+# 4) подготовить диабет
+python -m src.preprocess_diabetes_saliva
 
-# базовый эксперимент на диабете
+# 5) запустить базовый диабет-эксперимент
 python -m src.train_baselines \
   --data-path data/processed/diabetes_saliva.parquet \
   --crop-min 900 --crop-max 1800 \
@@ -145,8 +151,7 @@ python -m src.train_baselines \
   --qc-mmd-max 0.02 \
   --qc-knn-min 0.60 \
   --bootstrap 500
-
-
+  
 ---
 
 ## 5. Результаты каждого запуска: reports/exp/<timestamp>/
