@@ -65,3 +65,5 @@ venv/
 # MLflow и прочие артефакты трекинга
 mlflow.db
 mlruns/
+.micromamba/
+.conda/
