@@ -1,6 +1,6 @@
 ﻿# ---------------- data ----------------
 
-# Сырые и промежуточные данные не храним в репозитории
+# Сырые и промежуточные данные 
 data/raw/
 data/interim/
 data/.DS_Store
@@ -10,14 +10,21 @@ data/processed/*
 !data/processed/
 !data/processed/train.parquet
 !data/processed/external.parquet
-# когда появится отдельный train_diabetes.parquet — добавь аналогично:
-# !data/processed/train_diabetes.parquet
+!data/processed/train_diabetes.parquet
+
 
 # ---------------- reports ----------------
+# Все отчёты/артефакты по умолчанию не версионируем
+reports/**
 
-# По умолчанию не версионируем отчёты/артефакты
-reports/*
 !reports/
+!reports/.gitkeep
+
+# Храним только агрегированные summary 
+!reports/summary_runs.csv
+!reports/exp/
+!reports/exp/summary.csv
+
 
 # ---- EDA / QC ----
 # Храним только "latest" (то, что делает eda_qc.py),
