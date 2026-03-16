@@ -74,3 +74,6 @@ mlflow.db
 mlruns/
 .micromamba/
 .conda/
+
+# local aggregated artifacts
+summary_runs_from_json.csv

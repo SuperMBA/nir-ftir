@@ -39,6 +39,8 @@ from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.metrics import (
     accuracy_score,
+    average_precision_score,
+    brier_score_loss,
     confusion_matrix,
     f1_score,
     precision_score,
@@ -681,9 +683,42 @@ def predict_proba_pos(est: BaseEstimator, X: np.ndarray) -> np.ndarray:
 # ----------------------------
 # Metrics
 # ----------------------------
+def ece_score(y_true: np.ndarray, prob: np.ndarray, n_bins: int = 10) -> float:
+    """
+    Expected Calibration Error (ECE) for binary classification.
+    Lower is better.
+    """
+    y_true = np.asarray(y_true).astype(int)
+    prob = np.asarray(prob).astype(float)
+
+    if len(y_true) == 0:
+        return float("nan")
+
+    prob = np.clip(prob, 1e-6, 1 - 1e-6)
+    bins = np.linspace(0.0, 1.0, n_bins + 1)
+
+    ece = 0.0
+    n = len(prob)
+
+    for i in range(n_bins):
+        lo, hi = bins[i], bins[i + 1]
+        if i < n_bins - 1:
+            mask = (prob >= lo) & (prob < hi)
+        else:
+            mask = (prob >= lo) & (prob <= hi)
+
+        if not np.any(mask):
+            continue
+
+        conf = float(np.mean(prob[mask]))       # средняя уверенность
+        acc = float(np.mean(y_true[mask]))      # фактическая доля положительных
+        ece += (np.sum(mask) / n) * abs(acc - conf)
+
+    return float(ece)
 def compute_metrics(y_true: np.ndarray, prob: np.ndarray, thr: float) -> Dict[str, float]:
     pred = (prob >= float(thr)).astype(int)
     tn, fp, fn, tp = confusion_matrix(y_true, pred, labels=[0, 1]).ravel()
+
     out = {
         "thr": float(thr),
         "tn": float(tn),
@@ -696,10 +731,30 @@ def compute_metrics(y_true: np.ndarray, prob: np.ndarray, thr: float) -> Dict[st
         "spec": safe_div(tn, tn + fp),
         "f1": float(f1_score(y_true, pred, zero_division=0)),
     }
+
+    # ROC-AUC
     try:
         out["auc"] = float(roc_auc_score(y_true, prob))
     except Exception:
         out["auc"] = float("nan")
+
+    # PR-AUC (Average Precision)
+    try:
+        out["pr_auc"] = float(average_precision_score(y_true, prob))
+    except Exception:
+        out["pr_auc"] = float("nan")
+
+    # Calibration metrics
+    try:
+        out["brier"] = float(brier_score_loss(y_true, prob))
+    except Exception:
+        out["brier"] = float("nan")
+
+    try:
+        out["ece"] = float(ece_score(y_true, prob, n_bins=10))
+    except Exception:
+        out["ece"] = float("nan")
+
     return out
 
 
@@ -1099,7 +1154,7 @@ def run_protocol_mcdcv(cfg: "RunConfig") -> Dict[str, Any]:
     # aggregate
     agg: Dict[str, Any] = {"mean": {}, "std": {}}
     for m in models:
-        keys = ["auc", "f1", "recall", "prec", "spec", "acc"]
+        keys = ["auc", "pr_auc", "f1", "recall", "prec", "spec", "acc", "brier", "ece"]
         mat = {k: np.array([it["test"][m].get(k, np.nan) for it in all_iter], dtype=float) for k in keys}
         agg["mean"][m] = {k: float(np.nanmean(mat[k])) for k in keys}
         agg["std"][m] = {k: float(np.nanstd(mat[k])) for k in keys}
@@ -1379,19 +1434,40 @@ def main() -> None:
 
     print(f"[OK] Saved: {outpath}")
 
+# --- SAFE printing: works for both mcdcv and cv_holdout ---
     if "summary" in report:
-        # mcdcv summary
-        print("MCDCV summary (mean ± std):")
-        for m, v in report["summary"]["mean"].items():
-            s = report["summary"]["std"][m]
-            print(f"{m:10s}  AUC={v['auc']:.4f}±{s['auc']:.4f}  F1={v['f1']:.4f}±{s['f1']:.4f}  "
-                  f"spec={v['spec']:.4f}±{s['spec']:.4f}  rec={v['recall']:.4f}±{s['recall']:.4f}")
-    else:
-        # holdout
+        mean_dict = report.get("summary", {}).get("mean", {}) or {}
+        std_dict = report.get("summary", {}).get("std", {}) or {}
+
+        print("\n[MCDCV] summary (mean±std):")
+        for m, v in mean_dict.items():
+            s = std_dict.get(m, {}) or {}
+            print(
+                f"{m:10s}  "
+                f"AUC={v.get('auc', float('nan')):.4f}±{s.get('auc', float('nan')):.4f}  "
+                f"PR-AUC={v.get('pr_auc', float('nan')):.4f}±{s.get('pr_auc', float('nan')):.4f}  "
+                f"F1={v.get('f1', float('nan')):.4f}±{s.get('f1', float('nan')):.4f}  "
+                f"spec={v.get('spec', float('nan')):.4f}±{s.get('spec', float('nan')):.4f}  "
+                f"rec={v.get('recall', float('nan')):.4f}±{s.get('recall', float('nan')):.4f}  "
+                f"Brier={v.get('brier', float('nan')):.4f}  "
+                f"ECE={v.get('ece', float('nan')):.4f}"
+            )
+
+    elif "results" in report:
         for m, r in report["results"].items():
             t = r["test"]
-            print(f"{m:10s}  F1={t['f1']:.4f}  spec={t['spec']:.4f}  rec={t['recall']:.4f}  "
-                  f"prec={t['prec']:.4f}  auc={t['auc']:.4f}  thr={t['thr']:.3f}")
+            print(
+                f"{m:10s}  "
+                f"F1={t.get('f1', float('nan')):.4f}  "
+                f"spec={t.get('spec', float('nan')):.4f}  "
+                f"rec={t.get('recall', float('nan')):.4f}  "
+                f"prec={t.get('prec', float('nan')):.4f}  "
+                f"auc={t.get('auc', float('nan')):.4f}  "
+                f"pr_auc={t.get('pr_auc', float('nan')):.4f}  "
+                f"brier={t.get('brier', float('nan')):.4f}  "
+                f"ece={t.get('ece', float('nan')):.4f}  "
+                f"thr={t.get('thr', float('nan')):.3f}"
+           )
 
 
 if __name__ == "__main__":

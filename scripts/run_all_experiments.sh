@@ -69,7 +69,7 @@ NO_AUG=(--search-aug fixed --noise-std 0 --noise-med 0 --shift 0 --scale 0 --til
 CLASSIC_AUG=(--search-aug fixed --noise-med 0.015 --shift 2.0 --mixup 0.4 --aug-repeats 1 --p-apply 0.5)
 FRDA_AUG=(--frda-lite --frda-k 4 --frda-width 40 --frda-local-scale 0.02)
 
-MODELS_COVID="${MODELS_COVID:-plsda,logreg,lda,svm_lin}"
+MODELS_COVID="${MODELS_COVID:-plsda,logreg,lda,svm_lin,svm_rbf}"
 
 run_block_seeds "[A1] COVID baseline (no aug) D0" "A1_covid_baseline_d0" COVID_SEEDS \
   "${COMMON_COVID[@]}" "${PREPROC_COVID_D0[@]}" --models "${MODELS_COVID}" "${NO_AUG[@]}"
@@ -97,7 +97,7 @@ COMMON_DIAB=(
   --protocol cv_holdout
   --n-splits 5
   --val-size 0.2
-  --meta-stratify AGE,GENDER --age-bin 5
+  --meta-stratify age,gender --age-bins 5
   --calib platt --calib-real-only --calib-frac 0.3
   --threshold-by f1_plus --min-spec 0.65
 )

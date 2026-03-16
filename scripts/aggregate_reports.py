@@ -1,178 +1,353 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from pathlib import Path
 import json
-import re
+import os
+from pathlib import Path
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
+# scripts/aggregate_reports.py -> корень репозитория = parents[1]
 ROOT = Path(__file__).resolve().parents[1]
-EXP = ROOT / "reports" / "exp"   # у тебя там папки run_YYYYMMDD_HHMMSS/...
+REPORTS = ROOT / "reports" / "exp"
 
-def safe_read_json(p: Path) -> dict:
+
+def _f(x: Any) -> float:
+    """Safe float conversion (keeps NaN on errors)."""
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        if x is None:
+            return float("nan")
+        return float(x)
     except Exception:
-        return {}
+        return float("nan")
 
-def parse_from_filename(name: str) -> dict:
-    # пример: run_diabetes_saliva_cv_holdout_seed2_d1_f1_plus_270f21834d.json
-    out = {}
-    m = re.search(r"(covid_saliva|diabetes_saliva)", name)
-    if m: out["dataset"] = m.group(1)
-    m = re.search(r"(cv_holdout|mcdcv|mcdcv_plsda)", name)
-    if m: out["protocol"] = m.group(1)
-    m = re.search(r"seed(-?\d+)", name)
-    if m: out["seed"] = int(m.group(1))
-    m = re.search(r"_d(\d+)_", name)
-    if m: out["sg_deriv"] = int(m.group(1))
-    m = re.search(r"_(none|recall|recall_plus|f1_plus)_", name)
-    if m: out["threshold_by"] = m.group(1)
-    return out
 
-def infer_scenario(cfg: dict) -> str:
-    # твоя структура: cfg["aug"] и cfg["frda"]["enabled"]
-    aug = (cfg.get("aug") or {})
-    frda = (cfg.get("frda") or {})
-    frda_on = bool(frda.get("enabled", False))
+def _safe_get(d: dict, key: str, default=None):
+    if not isinstance(d, dict):
+        return default
+    return d.get(key, default)
 
-    # baseline если все нули
-    is_no_aug = (
-        float(aug.get("noise_std", 0.0)) == 0.0 and
-        float(aug.get("noise_med", 0.0)) == 0.0 and
-        float(aug.get("shift", 0.0)) == 0.0 and
-        float(aug.get("scale", 0.0)) == 0.0 and
-        float(aug.get("tilt", 0.0)) == 0.0 and
-        float(aug.get("offset", 0.0)) == 0.0 and
-        float(aug.get("mixup", 0.0)) == 0.0 and
-        float(aug.get("mixwithin", 0.0)) == 0.0 and
-        int(aug.get("aug_repeats", 1)) <= 1
+
+def _infer_run_root(json_path: Path) -> str:
+    """
+    Ищем папку запуска вида run_YYYYMMDD_HHMMSS в пути.
+    Если не нашли — возвращаем ближайшую разумную папку.
+    """
+    for p in json_path.parents:
+        name = p.name
+        if name.startswith("run_"):
+            return name
+    # fallback
+    if len(json_path.parents) > 1:
+        return json_path.parents[1].name
+    return ""
+
+
+def infer_scenario_from_path_and_cfg(json_path: Path, obj: dict) -> str:
+    """
+    Удобное имя сценария:
+    - сначала берём имя папки (A1_covid_baseline_d0 / B2_diab_strong_aug / ...)
+    - если папка неинформативна, пытаемся восстановить по config/aug.
+    """
+    parent_name = json_path.parent.name
+    if parent_name and parent_name not in {"exp", "reports"} and not parent_name.startswith("run_"):
+        return parent_name
+
+    cfg = obj.get("config", {}) or {}
+    aug = obj.get("selected_aug", {}) or {}
+
+    dataset = str(obj.get("dataset", "") or cfg.get("dataset", "")).lower()
+    sg_deriv = _safe_get(cfg, "sg_deriv", None)
+
+    # признаки аугментации
+    mixwithin = float(_safe_get(aug, "mixwithin", 0.0) or 0.0)
+    mixup = float(_safe_get(aug, "mixup", 0.0) or 0.0)
+    noise_med = float(_safe_get(aug, "noise_med", 0.0) or 0.0)
+    shift = float(_safe_get(aug, "shift", 0.0) or 0.0)
+    frda = bool(
+        _safe_get(cfg, "frda_lite", False)
+        or _safe_get((cfg.get("frda", {}) or {}), "enabled", False)
     )
-    if frda_on:
-        return "frda_lite"
-    if is_no_aug:
-        return "baseline"
-    return "aug"
+
+    if "covid" in dataset:
+        deriv_tag = f"d{sg_deriv}" if sg_deriv is not None else "d?"
+        if frda:
+            return f"covid_classic_frda_{deriv_tag}"
+        if mixup > 0 or noise_med > 0 or shift > 0:
+            return f"covid_classic_aug_{deriv_tag}"
+        return f"covid_baseline_{deriv_tag}"
+
+    if "diabetes" in dataset or "diab" in dataset:
+        if mixwithin > 0:
+            return "diab_strong_aug"
+        return "diab_baseline"
+
+    return "unknown"
+
 
 def flatten_report(json_path: Path) -> list[dict]:
-    rep = safe_read_json(json_path)
-    if not rep:
+    try:
+        obj = json.loads(json_path.read_text(encoding="utf-8"))
+    except Exception:
         return []
 
-    cfg = rep.get("config", {}) or {}
-    detected = rep.get("detected", {}) or {}
-    scenario = infer_scenario(cfg)
+    dataset = obj.get("dataset", "")
+    protocol = obj.get("protocol", "")
+    seed = obj.get("seed", None)
+    summary = obj.get("summary", {}) or {}
+    config = obj.get("config", {}) or {}
+    selected_aug = obj.get("selected_aug", {}) or {}
 
-    info = {
-        "file": str(json_path),
-        "run_dir": str(json_path.parent),
-        "dataset": rep.get("config", {}).get("dataset", parse_from_filename(json_path.name).get("dataset", "unknown")),
-        "protocol": rep.get("protocol", parse_from_filename(json_path.name).get("protocol", "unknown")),
-        "seed": int(rep.get("config", {}).get("seed", parse_from_filename(json_path.name).get("seed", -1))),
-        "scenario": scenario,
-        "threshold_by": rep.get("config", {}).get("threshold_by", parse_from_filename(json_path.name).get("threshold_by", "")),
-        "sg_deriv": int(rep.get("config", {}).get("sg_deriv", parse_from_filename(json_path.name).get("sg_deriv", -1))),
-        "n_samples": detected.get("n_samples", np.nan),
-        "n_features": detected.get("n_features", np.nan),
-        "group_col": detected.get("group_col", None),
-        "n_groups": detected.get("n_groups", np.nan),
-        "max_reps_per_group": detected.get("max_reps_per_group", np.nan),
+    scenario = infer_scenario_from_path_and_cfg(json_path, obj)
+    run_root = _infer_run_root(json_path)
+
+    metric_cols = ["auc", "pr_auc", "f1", "recall", "prec", "spec", "acc", "brier", "ece"]
+    rows: list[dict] = []
+
+    base_common = {
+        "json_path": str(json_path),
+        "run_root": run_root,               # напр. run_20260225_072002
+        "scenario": scenario,               # напр. A1_covid_baseline_d0
+        "dataset": dataset,
+        "protocol": protocol,
+        "seed": seed,
+        # полезные поля для фильтрации/анализа
+        "group_col": config.get("group_col"),
+        "threshold_by": config.get("threshold_by"),
+        "recall_target": config.get("recall_target"),
+        "min_spec": config.get("min_spec"),
+        "sg_deriv": config.get("sg_deriv"),
+        "meta_stratify": config.get("meta_stratify", config.get("stratify_meta")),
+        "age_bins": config.get("age_bins", config.get("age_bin")),
+        # аугментации (если есть)
+        "aug_search": selected_aug.get("search_aug"),
+        "aug_p_apply": _f(selected_aug.get("p_apply")),
+        "aug_noise_std": _f(selected_aug.get("noise_std")),
+        "aug_noise_med": _f(selected_aug.get("noise_med")),
+        "aug_shift": _f(selected_aug.get("shift")),
+        "aug_scale": _f(selected_aug.get("scale")),
+        "aug_tilt": _f(selected_aug.get("tilt")),
+        "aug_offset": _f(selected_aug.get("offset")),
+        "aug_mixup": _f(selected_aug.get("mixup")),
+        "aug_mixwithin": _f(selected_aug.get("mixwithin")),
+        "aug_repeats": _f(selected_aug.get("aug_repeats")),
     }
 
-    rows = []
+    # ---------- MCDCV: summary = {"mean": {...}, "std": {...}} ----------
+    if isinstance(summary, dict) and isinstance(summary.get("mean"), dict):
+        mean_d = summary.get("mean", {}) or {}
+        std_d = summary.get("std", {}) or {}
 
-    # cv_holdout формат: rep["results"][model]["test"]
-    if "results" in rep:
-        results = rep["results"] or {}
-        for model, r in results.items():
-            t = (r.get("test") or {})
-            rows.append({
-                **info,
-                "model": model,
-                "metric_source": "holdout_test",
-                "thr": float(t.get("thr", t.get("threshold", np.nan))),
-                "f1": float(t.get("f1", np.nan)),
-                "auc": float(t.get("auc", np.nan)),
-                "acc": float(t.get("acc", np.nan)),
-                "recall": float(t.get("recall", np.nan)),
-                "prec": float(t.get("prec", np.nan)),
-                "spec": float(t.get("spec", np.nan)),
-                "tp": float(t.get("tp", np.nan)),
-                "fp": float(t.get("fp", np.nan)),
-                "tn": float(t.get("tn", np.nan)),
-                "fn": float(t.get("fn", np.nan)),
-            })
-        return rows
+        for model, m in mean_d.items():
+            if not isinstance(m, dict):
+                continue
 
-    # mcdcv формат: rep["summary"]["mean"][model], rep["summary"]["std"][model]
-    if "summary" in rep:
-        mean = (rep["summary"].get("mean") or {})
-        std = (rep["summary"].get("std") or {})
-        for model, m in mean.items():
-            s = std.get(model, {})
-            rows.append({
-                **info,
+            s = std_d.get(model, {})
+            if not isinstance(s, dict):
+                s = {}
+
+            row = {
+                **base_common,
                 "model": model,
                 "metric_source": "mcdcv_mean",
-                "f1": float(m.get("f1", np.nan)),
-                "auc": float(m.get("auc", np.nan)),
-                "acc": float(m.get("acc", np.nan)),
-                "recall": float(m.get("recall", np.nan)),
-                "prec": float(m.get("prec", np.nan)),
-                "spec": float(m.get("spec", np.nan)),
-                "f1_std": float(s.get("f1", np.nan)),
-                "auc_std": float(s.get("auc", np.nan)),
-                "acc_std": float(s.get("acc", np.nan)),
-                "recall_std": float(s.get("recall", np.nan)),
-                "prec_std": float(s.get("prec", np.nan)),
-                "spec_std": float(s.get("spec", np.nan)),
-            })
+                "thr": float("nan"),  # у MCDCV summary единого порога обычно нет
+            }
+
+            for k in metric_cols:
+                row[k] = _f(m.get(k))
+                row[f"{k}_std"] = _f(s.get(k))
+
+            rows.append(row)
+
         return rows
 
-    return []
+    # ---------- Holdout: обычно report["results"][model]["test"] ----------
+    if isinstance(obj.get("results"), dict):
+        for model, model_block in obj["results"].items():
+            if not isinstance(model_block, dict):
+                continue
 
-def main():
-    if not EXP.exists():
-        raise SystemExit(f"Not found: {EXP}")
+            t = model_block.get("test", model_block)
+            if not isinstance(t, dict):
+                continue
 
-    json_files = list(EXP.rglob("*.json"))
-    json_files = [p for p in json_files if p.name.startswith("run_") and ("_seed" in p.name)]
+            # минимальная проверка, что это блок метрик
+            if ("f1" not in t) and ("auc" not in t) and ("recall" not in t):
+                continue
+
+            row = {
+                **base_common,
+                "model": model,
+                "metric_source": "holdout_test",
+                "thr": _f(t.get("thr")),
+            }
+
+            for k in metric_cols:
+                row[k] = _f(t.get(k))
+                row[f"{k}_std"] = float("nan")  # один holdout JSON -> std нет
+
+            rows.append(row)
+
+        return rows
+
+    # ---------- fallback: старая структура в summary ----------
+    if isinstance(summary, dict):
+        candidate_models = summary.get("test", summary) if isinstance(summary.get("test"), dict) else summary
+
+        for model, t in candidate_models.items():
+            if not isinstance(t, dict):
+                continue
+            if ("f1" not in t) and ("auc" not in t) and ("recall" not in t):
+                continue
+
+            row = {
+                **base_common,
+                "model": model,
+                "metric_source": "holdout_test",
+                "thr": _f(t.get("thr")),
+            }
+
+            for k in metric_cols:
+                row[k] = _f(t.get(k))
+                row[f"{k}_std"] = float("nan")
+
+            rows.append(row)
+
+    return rows
+
+
+def main() -> None:
+    if not REPORTS.exists():
+        raise SystemExit(f"Reports dir not found: {REPORTS}")
+
+    # Можно ограничить только одним запуском:
+    # ONLY_SUBDIR=run_20260225_072002 python scripts/aggregate_reports.py
+    only_subdir = os.environ.get("ONLY_SUBDIR", "").strip()
+
+    if only_subdir:
+        target = REPORTS / only_subdir
+        if not target.exists():
+            raise SystemExit(f"ONLY_SUBDIR not found: {target}")
+        search_roots = [target]
+    else:
+        search_roots = [REPORTS]
+
+    # Берём только seed-отчёты, чтобы не тянуть посторонние JSON
+    json_files: list[Path] = []
+    for root in search_roots:
+        json_files.extend([p for p in sorted(root.rglob("*.json")) if "_seed" in p.name])
+
     if not json_files:
-        raise SystemExit("No run_*.json found under reports/exp")
+        roots_str = ", ".join(str(r) for r in search_roots)
+        raise SystemExit(f"No *_seed*.json found under: {roots_str}")
 
-    rows = []
+    all_rows: list[dict] = []
     for p in json_files:
-        rows.extend(flatten_report(p))
+        all_rows.extend(flatten_report(p))
 
-    df = pd.DataFrame(rows)
+    df = pd.DataFrame(all_rows)
     if df.empty:
-        raise SystemExit("Parsed 0 rows (unexpected).")
+        print("No rows found after parsing JSON reports.")
+        return
 
-    out_runs = ROOT / "reports" / "summary_runs_from_json.csv"
-    out_runs.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(out_runs, index=False)
+    metric_cols = ["auc", "pr_auc", "f1", "recall", "prec", "spec", "acc", "brier", "ece"]
 
-    # группировка: mean±std по seed (для holdout) / уже mean для mcdcv
-    # оставим отдельно holdout
+    ordered = [
+        "json_path",
+        "run_root",
+        "scenario",
+        "dataset",
+        "protocol",
+        "seed",
+        "model",
+        "metric_source",
+        *metric_cols,
+        *[f"{m}_std" for m in metric_cols],
+        "thr",
+        "threshold_by",
+        "recall_target",
+        "min_spec",
+        "group_col",
+        "sg_deriv",
+        "meta_stratify",
+        "age_bins",
+        "aug_search",
+        "aug_p_apply",
+        "aug_noise_std",
+        "aug_noise_med",
+        "aug_shift",
+        "aug_scale",
+        "aug_tilt",
+        "aug_offset",
+        "aug_mixup",
+        "aug_mixwithin",
+        "aug_repeats",
+    ]
+
+    for c in ordered:
+        if c not in df.columns:
+            df[c] = np.nan
+
+    df = df[ordered + [c for c in df.columns if c not in ordered]]
+
+    # ---- output paths ----
+    out_runs = ROOT / "summary_runs_from_json.csv"
+    out_reports_dir = ROOT / "reports"
+    out_reports_dir.mkdir(exist_ok=True, parents=True)
+
+    out_grouped = out_reports_dir / "summary_grouped.csv"
+    out_hold_best = out_reports_dir / "summary_grouped_holdout.csv"
+    out_hold_mean = out_reports_dir / "summary_grouped_holdout_mean.csv"
+
+    # -------- Flat rows --------
+    df.to_csv(out_runs, index=False, encoding="utf-8-sig")
+
+    # -------- Grouped MCDCV (mean/std/count across seed files) --------
+    mcdcv = df[df["metric_source"] == "mcdcv_mean"].copy()
+    if not mcdcv.empty:
+        grp_cols = ["run_root", "scenario", "dataset", "protocol", "model"]
+        agg_dict = {m: ["mean", "std", "count"] for m in metric_cols}
+
+        g = mcdcv.groupby(grp_cols, dropna=False).agg(agg_dict)
+        g.columns = [f"{a}_{b}" for a, b in g.columns]
+        g = g.reset_index()
+        g.to_csv(out_grouped, index=False, encoding="utf-8-sig")
+    else:
+        pd.DataFrame().to_csv(out_grouped, index=False, encoding="utf-8-sig")
+
+    # -------- Holdout grouped --------
     hold = df[df["metric_source"] == "holdout_test"].copy()
     if not hold.empty:
-        grp = (
-            hold.groupby(["dataset","protocol","scenario","model"], dropna=False)
-                .agg(
-                    n=("f1","count"),
-                    f1_mean=("f1","mean"), f1_std=("f1","std"),
-                    auc_mean=("auc","mean"), auc_std=("auc","std"),
-                    spec_mean=("spec","mean"), spec_std=("spec","std"),
-                    recall_mean=("recall","mean"), recall_std=("recall","std"),
-                ).reset_index()
-        )
-        out_grp = ROOT / "reports" / "summary_grouped_holdout.csv"
-        grp.to_csv(out_grp, index=False)
-        print("[OK] grouped holdout:", out_grp)
+        grp_cols = ["run_root", "scenario", "dataset", "protocol", "model"]
 
-    print("[OK] runs table:", out_runs)
-    print(df.head(5).to_string(index=False))
+        # best-by-F1 (по каждому run/scenario/model)
+        hold_best = (
+            hold.sort_values(
+                ["run_root", "scenario", "dataset", "protocol", "model", "f1"],
+                ascending=[True, True, True, True, True, False],
+            )
+            .groupby(grp_cols, dropna=False, as_index=False)
+            .first()
+        )
+        hold_best.to_csv(out_hold_best, index=False, encoding="utf-8-sig")
+
+        # mean/std/count по seed для holdout
+        agg_dict = {m: ["mean", "std", "count"] for m in metric_cols}
+        h = hold.groupby(grp_cols, dropna=False).agg(agg_dict)
+        h.columns = [f"{a}_{b}" for a, b in h.columns]
+        h = h.reset_index()
+        h.to_csv(out_hold_mean, index=False, encoding="utf-8-sig")
+    else:
+        pd.DataFrame().to_csv(out_hold_best, index=False, encoding="utf-8-sig")
+        pd.DataFrame().to_csv(out_hold_mean, index=False, encoding="utf-8-sig")
+
+    print(f"[OK] Parsed JSON files: {len(json_files)}")
+    print(f"[OK] Saved: {out_runs} (rows={len(df)})")
+    print(f"[OK] Saved: {out_grouped}")
+    print(f"[OK] Saved: {out_hold_best}")
+    print(f"[OK] Saved: {out_hold_mean}")
+
 
 if __name__ == "__main__":
     main()

@@ -32,7 +32,7 @@ def plot_metric(metric: str, dataset: str):
     plt.close()
 
 for ds in sorted(h["dataset"].unique()):
-    for met in ["f1","auc","spec","recall"]:
+    for met in ["auc", "pr_auc", "f1", "recall", "spec", "brier", "ece"]:
         plot_metric(met, ds)
 
 print("[OK] plots in:", OUTD)
