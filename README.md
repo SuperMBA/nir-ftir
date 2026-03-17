@@ -86,7 +86,7 @@ nir-ftir/
 ### Основные модули и скрипты
 ## Ядро пайплайна
 
-# src/train_baselines.py — основной универсальный supervised-пайплайн:
+- src/train_baselines.py — основной универсальный supervised-пайплайн:
 
  - загрузка parquet-данных;
 
@@ -104,7 +104,7 @@ nir-ftir/
 
  - расчет метрик;
 
- - охранение JSON-отчетов.
+ - cохранение JSON-отчетов.
 
 ## Подготовка данных
 
@@ -175,7 +175,7 @@ nir-ftir/
 
 Проект покрывает два разных режима анализа:
 
-# 1. Large / medium datasets (saliva)
+### 1. Large / medium datasets (saliva)
 
 Здесь аугментация рассматривается прежде всего как возможный регуляризатор supervised-моделей.
 Оцениваются:
@@ -188,7 +188,7 @@ nir-ftir/
  - Brier score
  - ECE
 
-# 2. Very small n (GDB small-n)
+### 2. Very small n (GDB small-n)
 
 Здесь аугментация рассматривается прежде всего как воздействие на геометрию данных.
 Дополнительно анализируются:
@@ -211,28 +211,34 @@ nir-ftir/
 ```text
 mamba env create -f environment.yml
 mamba activate nir-ftir
+
 ```
 # 2. Запустить основные saliva-эксперименты
 ```text
 bash scripts/run_all_experiments.sh
+
 ```
 # 3. Запустить supervised GDB small-n
 ```text
 bash scripts/run_gdb_study.sh
+
 ```
 # 4. Запустить GDB QC и downstream sanity-checks
 ```text
 bash scripts/run_gdb_qc_r2.sh
+
 ```
 # 5. Запустить PCA / dimdesc-like анализ
 ```text
 bash scripts/run_gdb_dimdesc_r2.sh
+
 ```
 # 6. Построить summary-таблицы
 ```text
 python scripts/aggregate_reports.py
 python scripts/aggregate_gdb_smalln_reports.py
 python scripts/aggregate_dimdesc_r2.py
+
 ```
 --- 
 # Что хранится в Git
