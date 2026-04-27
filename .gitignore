@@ -41,7 +41,9 @@ data/processed/*
 !data/processed/train.parquet
 !data/processed/external.parquet
 !data/processed/diabetes_saliva.parquet
-!data/processed/gdb_smalln.parquet
+
+# GDB small-n is local only and is not versioned
+data/processed/gdb_smalln.parquet
 
 # =========================
 # Reports
