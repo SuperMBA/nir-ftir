@@ -1,4 +1,5 @@
-﻿# =========================
+﻿
+# =========================
 # OS / IDE / Python cache
 # =========================
 .DS_Store
@@ -77,15 +78,27 @@ reports/qc_r2/*
 !reports/qc_r2/summary_method.csv
 !reports/qc_r2/summary_label_method.csv
 
+# ---- final results for thesis / commission ----
+!reports/final/
+reports/final/*
+!reports/final/README_results.md
+!reports/final/*.csv
+
 # ---- figs ----
-# By default figures are generated artifacts and are not versioned
-reports/figs/
+# Keep only final thesis-ready figures, not all generated plots
+!reports/figs/
+reports/figs/*
+!reports/figs/*.png
+!reports/figs/*.pdf
 
 # ---- eda_qc ----
 # EDA/QC run folders are generated locally and are not versioned
 reports/eda_qc/
 
 # =========================
-# Misc
+# Archives / logs / misc
 # =========================
 *.log
+*.rar
+*.zip
+EOF
