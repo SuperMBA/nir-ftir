@@ -65,8 +65,4 @@
 - synthetic-data QC: real-vs-synth AUC, kNN overlap, Wasserstein distance для classic augmentation и VAE;
 - optional: схема экспериментального протокола baseline → train-only augmentation → evaluation → QC.
 
-## 6. Как воспроизвести финальные saliva-таблицы
 
-```bash
-ONLY_SUBDIR="../exp_old_20260509_151714/run_20260225_072002" python scripts/aggregate_reports.py
-python scripts/make_final_saliva_reports.py
