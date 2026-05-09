@@ -117,13 +117,6 @@
 
 ---
 
-## 6. Воспроизводимость
 
-Итоговые saliva-таблицы формируются скриптом:
-
-```bash
-python scripts/make_final_saliva_reports.py
-- synthetic-data QC: real-vs-synth AUC, kNN overlap, Wasserstein distance для classic augmentation и VAE;
-- optional: схема экспериментального протокола baseline → train-only augmentation → evaluation → QC.
 
 
