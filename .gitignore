@@ -107,3 +107,5 @@ reports/eda_qc/
 *.zip
 EOF
 .pytest_cache/
+# PCA/R2 run-level intermediate outputs
+reports/final/pca_r2/gdb_*_nomix_seed*/
