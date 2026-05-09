@@ -32,7 +32,6 @@ def _safe_get(d: dict, key: str, default=None):
 def _infer_run_root(json_path: Path) -> str:
     """
     Ищем папку запуска вида run_YYYYMMDD_HHMMSS в пути.
-    Если не нашли — возвращаем ближайшую разумную папку.
     """
     for p in json_path.parents:
         name = p.name
@@ -47,8 +46,7 @@ def _infer_run_root(json_path: Path) -> str:
 def infer_scenario_from_path_and_cfg(json_path: Path, obj: dict) -> str:
     """
     Удобное имя сценария:
-    - сначала берём имя папки (A1_covid_baseline_d0 / B2_diab_strong_aug / ...)
-    - если папка неинформативна, пытаемся восстановить по config/aug.
+    - берём имя папки (A1_covid_baseline_d0 / B2_diab_strong_aug / ...)
     """
     parent_name = json_path.parent.name
     if parent_name and parent_name not in {"exp", "reports"} and not parent_name.startswith("run_"):
@@ -107,8 +105,8 @@ def flatten_report(json_path: Path) -> list[dict]:
 
     base_common = {
         "json_path": str(json_path),
-        "run_root": run_root,               # напр. run_20260225_072002
-        "scenario": scenario,               # напр. A1_covid_baseline_d0
+        "run_root": run_root,
+        "scenario": scenario,
         "dataset": dataset,
         "protocol": protocol,
         "seed": seed,
@@ -120,7 +118,7 @@ def flatten_report(json_path: Path) -> list[dict]:
         "sg_deriv": config.get("sg_deriv"),
         "meta_stratify": config.get("meta_stratify", config.get("stratify_meta")),
         "age_bins": config.get("age_bins", config.get("age_bin")),
-        # аугментации (если есть)
+        # аугментации
         "aug_search": selected_aug.get("search_aug"),
         "aug_p_apply": _f(selected_aug.get("p_apply")),
         "aug_noise_std": _f(selected_aug.get("noise_std")),
@@ -151,7 +149,7 @@ def flatten_report(json_path: Path) -> list[dict]:
                 **base_common,
                 "model": model,
                 "metric_source": "mcdcv_mean",
-                "thr": float("nan"),  # у MCDCV summary единого порога обычно нет
+                "thr": float("nan"),
             }
 
             for k in metric_cols:
@@ -185,7 +183,7 @@ def flatten_report(json_path: Path) -> list[dict]:
 
             for k in metric_cols:
                 row[k] = _f(t.get(k))
-                row[f"{k}_std"] = float("nan")  # один holdout JSON -> std нет
+                row[f"{k}_std"] = float("nan")
 
             rows.append(row)
 
@@ -221,8 +219,7 @@ def main() -> None:
     if not REPORTS.exists():
         raise SystemExit(f"Reports dir not found: {REPORTS}")
 
-    # Можно ограничить только одним запуском:
-    # ONLY_SUBDIR=run_20260225_072002 python scripts/aggregate_reports.py
+
     only_subdir = os.environ.get("ONLY_SUBDIR", "").strip()
 
     if only_subdir:
@@ -233,7 +230,7 @@ def main() -> None:
     else:
         search_roots = [REPORTS]
 
-    # Берём только seed-отчёты, чтобы не тянуть посторонние JSON
+    # Берём только seed-отчёты
     json_files: list[Path] = []
     for root in search_roots:
         json_files.extend([p for p in sorted(root.rglob("*.json")) if "_seed" in p.name])

@@ -7,8 +7,8 @@ MODULE="src.train_baselines"
 DATA_COVID="${DATA_COVID:-data/processed/train.parquet}"
 DATA_DIAB="${DATA_DIAB:-data/processed/diabetes_saliva.parquet}"
 
-CLEAN_REPORTS="${CLEAN_REPORTS:-1}"   # 0/1
-RUN_FRDA="${RUN_FRDA:-0}"             # 0/1
+CLEAN_REPORTS="${CLEAN_REPORTS:-1}"
+RUN_FRDA="${RUN_FRDA:-0}"
 
 COVID_SEEDS_DEFAULT=(0 1 2)
 DIAB_SEEDS_DEFAULT=(0 1 2)

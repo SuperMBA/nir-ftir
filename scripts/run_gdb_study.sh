@@ -62,8 +62,8 @@ RUN_FRDA_LITE="${RUN_FRDA_LITE:-0}"
 # ------------------------------
 # Protocols
 # ------------------------------
-PROTOCOL_MAIN="${PROTOCOL_MAIN:-mcdcv}"      # mcdcv | mcdcv_plsda
-PROTOCOL_STRESS="${PROTOCOL_STRESS:-mcdcv}"  # mcdcv
+PROTOCOL_MAIN="${PROTOCOL_MAIN:-mcdcv}"
+PROTOCOL_STRESS="${PROTOCOL_STRESS:-mcdcv}"
 if [[ "${PROTOCOL_MAIN}" == "loocv" || "${PROTOCOL_STRESS}" == "loocv" ]]; then
   echo "[ERROR] LOOCV requested, but ${MODULE} supports only: cv_holdout, mcdcv, mcdcv_plsda"
   exit 2
@@ -95,7 +95,7 @@ MIN_SPEC_STRESS="${MIN_SPEC_STRESS:-0.30}"
 # ------------------------------
 RUN_META="${RUN_META:-0}"
 ALLOW_META_FAIL="${ALLOW_META_FAIL:-1}"
-META_STRAT_COLS="${META_STRAT_COLS:-Gender}"  # e.g. "Gender" or "Age_factor,Gender"
+META_STRAT_COLS="${META_STRAT_COLS:-Gender}"
 
 # ------------------------------
 # Preprocessing profile
@@ -361,7 +361,7 @@ run_block_seeds () {
   wait
 }
 
-# Soft meta block (kept sequential; meta can be fragile, easier to read failures)
+# Soft meta block
 run_block_seeds_soft () {
   local title="$1"; shift
   local out_subdir="$1"; shift

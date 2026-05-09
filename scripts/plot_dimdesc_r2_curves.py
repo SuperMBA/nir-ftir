@@ -89,7 +89,7 @@ def main():
         plt.plot(x, b, marker="o", label="baseline")
         plt.plot(x, a, marker="o", label="classic_aug")
 
-        # shade if std exists (may be NaN)
+
         if np.isfinite(bstd).any():
             plt.fill_between(x, b - bstd, b + bstd, alpha=0.15)
         if np.isfinite(astd).any():

@@ -19,9 +19,9 @@ def is_spectral_col(col: str) -> bool:
 def normalize_code(x: object) -> str:
     """Normalize categorical labels (strip, uppercase, fix Cyrillic lookalikes)."""
     s = str(x).strip().upper()
-    # Частая проблема: кириллическая С вместо латинской C
+
     s = s.replace("С", "C")
-    # На всякий случай (если вдруг встретятся)
+
     s = s.replace("Н", "H").replace("О", "O").replace("М", "M").replace("Р", "P")
     return s
 
@@ -62,7 +62,7 @@ def main():
     if "ID" in df.columns:
         sid = df["ID"].astype(str).str.extract(r"(\d+)")[0]
     elif "Name" in df.columns:
-        sid = df["Name"].astype(str).str.extract(r"(\d+)")[0]  # if Name starts with numeric id
+        sid = df["Name"].astype(str).str.extract(r"(\d+)")[0]
     else:
         sid = None
 
@@ -98,7 +98,7 @@ def main():
     # Caries: healthy H vs any caries-like state (C/F/M/S)
     df["y_caries_H_vs_path"] = (df["caries_factor"] != "H").astype(int)
 
-    # Caries: exact C vs non-C (опционально, если нужен отдельный сценарий)
+    # Caries: exact C vs non-C
     df["y_caries_C_vs_nonC"] = (df["caries_factor"] == "C").astype(int)
 
     # Stress-test: fully healthy across all three axes vs any pathology

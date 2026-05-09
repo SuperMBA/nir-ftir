@@ -42,8 +42,8 @@ from statsmodels.stats.multitest import multipletests
 # безопасный импорт (sklearn>=1.1)
 try:
     from sklearn.model_selection import StratifiedGroupKFold
-except Exception:  # pragma: no cover
-    StratifiedGroupKFold = None  # type: ignore
+except Exception:
+    StratifiedGroupKFold = None
 
 # headless backend
 plt.switch_backend("Agg")

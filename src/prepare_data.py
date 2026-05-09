@@ -108,7 +108,7 @@ def main():
         # для совместимости: train.parquet = усреднённый
         train_avg.to_parquet(PROC / "train.parquet", index=False)
     else:
-        # если не усредняем — train.parquet = реплики
+
         train_repl.to_parquet(PROC / "train.parquet", index=False)
 
     train_repl.to_parquet(PROC / "train_repl.parquet", index=False)

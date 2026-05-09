@@ -23,7 +23,7 @@ def main():
     # meta-only: ONLY age + gender (без glucose/hemoglobin!)
     X = pd.DataFrame({
         "age": pd.to_numeric(df["age"], errors="coerce"),
-        # приведи gender к 0/1 (подстрой под свои значения)
+
         "gender_male": df["gender"].astype(str).str.upper().str.strip().isin(["MALE","M"]).astype(int),
     })
     y = df["target"].astype(int).to_numpy()

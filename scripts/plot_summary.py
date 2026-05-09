@@ -10,7 +10,7 @@ OUTD.mkdir(parents=True, exist_ok=True)
 
 df = pd.read_csv(INP)
 
-# берем только holdout (по seed красиво)
+
 h = df[df["metric_source"]=="holdout_test"].copy()
 
 def plot_metric(metric: str, dataset: str):

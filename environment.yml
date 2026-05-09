@@ -2,6 +2,7 @@ name: ftir311_local
 channels:
 - conda-forge
 dependencies:
+- pytest
 - _libgcc_mutex=0.1=conda_forge
 - _openmp_mutex=4.5=7_kmp_llvm
 - adwaita-icon-theme=49.0=unix_0

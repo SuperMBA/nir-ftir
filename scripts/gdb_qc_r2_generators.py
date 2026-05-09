@@ -44,10 +44,10 @@ import torch.optim as optim
 # Try src.train_baselines first (repo layout), then local train_baselines.py
 tb = None
 try:
-    import src.train_baselines as tb  # type: ignore
+    import src.train_baselines as tb
 except Exception:
     try:
-        import train_baselines as tb  # type: ignore
+        import train_baselines as tb
     except Exception as e:
         raise RuntimeError(
             "Cannot import train_baselines (src.train_baselines or train_baselines). "
@@ -210,7 +210,7 @@ def fit_wgan_gp_and_generate(
 
     n, d = Z_train.shape
     if n < 4:
-        # fallback: jitter if too small
+
         rng = np.random.default_rng(seed)
         return (Z_train[rng.integers(0, n, size=n_gen)] + rng.normal(0, 0.05, size=(n_gen, d))).astype(np.float32)
 
@@ -310,7 +310,7 @@ def knn_domain_overlap(X_real: np.ndarray, X_synth: np.ndarray, k: int = 5) -> f
     k_eff = int(max(1, min(k, len(X) - 1)))
     nn = NearestNeighbors(n_neighbors=k_eff + 1, metric="euclidean")
     nn.fit(X)
-    idx = nn.kneighbors(X, return_distance=False)[:, 1:]  # exclude self
+    idx = nn.kneighbors(X, return_distance=False)[:, 1:]
 
     opp = (dom[idx] != dom[:, None]).mean(axis=1)
     return float(np.mean(opp))
@@ -436,7 +436,7 @@ def make_classic_aug_cfg(profile: str = "mild"):
     if profile == "mild":
         return tb.AugConfig(
             search_aug="fixed",
-            p_apply=1.0,           # deterministic generation for QC
+            p_apply=1.0,
             noise_std=0.0,
             noise_med=0.004,
             shift=1.0,

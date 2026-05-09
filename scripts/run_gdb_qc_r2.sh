@@ -71,7 +71,7 @@ PLS_NCOMP="${PLS_NCOMP:-2}"
 
 # QC
 KNN_K="${KNN_K:-5}"
-DEVICE="${DEVICE:-auto}"  # auto/cpu/cuda
+DEVICE="${DEVICE:-auto}"
 
 echo "====================================="
 echo "GDB small-n | AE/WGAN + QC + PLS R2/Q2"

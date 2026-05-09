@@ -30,7 +30,7 @@ from sklearn.mixture import GaussianMixture
 # make repo root importable
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from src import train_baselines as tb  # noqa: E402
+from src import train_baselines as tb
 
 
 def preproc_params(profile: str):
@@ -54,7 +54,7 @@ def make_classic_aug_mild_no_mixup() -> tb.AugConfig:
         scale=0.004,
         tilt=0.003,
         offset=0.0015,
-        mixup=0.0,      # IMPORTANT
+        mixup=0.0,
         mixwithin=0.0,
         aug_repeats=1,
     )
@@ -126,8 +126,8 @@ def run_one_algo(Z: np.ndarray, algo: str, k: int, idx_fit: np.ndarray, seed: in
     if algo == "gmm":
         m = GaussianMixture(
         n_components=k,
-        covariance_type="diag",   # <- ключевое для small-n
-        reg_covar=1e-3,           # <- лечит неположит. определенность
+        covariance_type="diag",
+        reg_covar=1e-3,
         n_init=10,
         max_iter=500,
         random_state=seed,
@@ -145,7 +145,7 @@ def run_one_algo(Z: np.ndarray, algo: str, k: int, idx_fit: np.ndarray, seed: in
 
 
 def safe_cluster_metrics(Z: np.ndarray, labels: np.ndarray) -> dict:
-    # if a cluster has 1 point, silhouette may error; catch & set NaN
+
     out = {}
     try:
         out["silhouette"] = float(silhouette_score(Z, labels))

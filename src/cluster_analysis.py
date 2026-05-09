@@ -572,7 +572,7 @@ def make_patient_level_table(df_rows: pd.DataFrame, clinical_cols: List[str]) ->
         return pd.DataFrame()
 
     if df_rows["ID"].nunique() == len(df_rows):
-        return df_rows.copy()  # already one row per patient
+        return df_rows.copy()
 
     def _mode_safe(s: pd.Series):
         m = s.mode(dropna=True)

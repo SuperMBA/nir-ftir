@@ -1,4 +1,4 @@
-﻿
+
 # =========================
 # OS / IDE / Python cache
 # =========================
@@ -80,11 +80,13 @@ reports/qc_r2/*
 !reports/qc_r2/summary_method.csv
 !reports/qc_r2/summary_label_method.csv
 
+
 # ---- final results for thesis / commission ----
 !reports/final/
 reports/final/*
 !reports/final/README_results.md
 !reports/final/*.csv
+!reports/final/*.md
 
 # ---- figs ----
 # Keep only final thesis-ready figures, not all generated plots
@@ -104,3 +106,4 @@ reports/eda_qc/
 *.rar
 *.zip
 EOF
+.pytest_cache/

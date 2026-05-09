@@ -53,9 +53,9 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 
 try:
-    from sklearn.model_selection import StratifiedGroupKFold  # type: ignore
+    from sklearn.model_selection import StratifiedGroupKFold
 except Exception:
-    StratifiedGroupKFold = None  # type: ignore
+    StratifiedGroupKFold = None
 
 
 # ----------------------------
@@ -629,11 +629,11 @@ class PLSDAClassifier(BaseEstimator, ClassifierMixin):
         y = np.asarray(y).astype(float).reshape(-1, 1)
         ncomp = max(1, min(int(self.n_components), X.shape[1], X.shape[0] - 1))
 
-        # ВАЖНО: атрибут с суффиксом "_" -> sklearn будет считать модель fitted
+
         self.pls_ = PLSRegression(n_components=ncomp)
         self.pls_.fit(X, y)
 
-        # тоже полезно для sklearn-совместимости
+
         self.classes_ = np.array([0, 1], dtype=int)
         self.n_features_in_ = X.shape[1]
 
@@ -710,8 +710,8 @@ def ece_score(y_true: np.ndarray, prob: np.ndarray, n_bins: int = 10) -> float:
         if not np.any(mask):
             continue
 
-        conf = float(np.mean(prob[mask]))       # средняя уверенность
-        acc = float(np.mean(y_true[mask]))      # фактическая доля положительных
+        conf = float(np.mean(prob[mask]))
+        acc = float(np.mean(y_true[mask]))
         ece += (np.sum(mask) / n) * abs(acc - conf)
 
     return float(ece)
@@ -784,14 +784,14 @@ class _ManuallyCalibrated(BaseEstimator, ClassifierMixin):
         self.base_estimator = base_estimator
         self.method = method
         self.calibrator = calibrator
-        # classes_ нужно многим sklearn-частям
+
         self.classes_ = getattr(base_estimator, "classes_", np.array([0, 1], dtype=int))
 
     def predict_proba(self, X: np.ndarray) -> np.ndarray:
         s = _calib_scores(self.base_estimator, X)
         if self.method == "sigmoid":
             p = np.asarray(self.calibrator.predict_proba(s.reshape(-1, 1))[:, 1], dtype=float)
-        else:  # isotonic
+        else:
             p = np.asarray(self.calibrator.predict(s), dtype=float)
         p = np.clip(p, 1e-6, 1 - 1e-6)
         return np.vstack([1.0 - p, p]).T
@@ -814,7 +814,7 @@ def fit_with_optional_calibration(
     if method == "none" or X_cal is None or y_cal is None or len(y_cal) < 10:
         return est_fitted
 
-    # если вдруг в калибровочном поднаборе один класс — калибровка бессмысленна/сломается
+
     if len(np.unique(y_cal)) < 2:
         return est_fitted
 
@@ -852,7 +852,7 @@ def tune_pls_components(
     y = np.asarray(y).astype(int)
     splits = make_cv_splits(strat_labels, groups, n_splits=n_splits, seed=seed)
 
-    # ускорение + защита от бессмысленных компонент
+
     max_comp = max(1, min(X.shape[0] - 1, X.shape[1]))
     grid_eff = sorted({max(1, min(int(c), max_comp)) for c in grid if int(c) >= 1})
 
@@ -863,7 +863,7 @@ def tune_pls_components(
 
         for fold, (tr, va) in enumerate(splits):
             est = build_model_pipeline(PLSDAClassifier(n_components=int(c)), xscale=xscale)
-            # ВАЖНО: без этого будет NotFittedError
+
             est.fit(X[tr], y[tr])
             oof[va] = predict_proba_pos(est, X[va])
 
@@ -966,7 +966,7 @@ def run_inner_cv_get_thresholds(
 
 
 def run_protocol_cv_holdout(cfg: "RunConfig") -> Dict[str, Any]:
-    # load dataset
+
     df0 = pd.read_parquet(Path(cfg.data_path)) if cfg.data_path else pd.read_parquet(Path(cfg.default_path))
     y, ycol = infer_label_series(df0, cfg.label_col)
     groups_s, gcol = infer_groups_series(df0, cfg.group_col)
@@ -1095,7 +1095,7 @@ def run_protocol_mcdcv(cfg: "RunConfig") -> Dict[str, Any]:
     rng = np.random.default_rng(cfg.seed + 12345)
 
     for it in range(int(cfg.mc_iter)):
-    # пробуем подобрать валидный сплит (оба класса в train и test)
+
         for _attempt in range(200):
             seed_it = int(rng.integers(0, 2**31 - 1))
             tr_idx, te_idx = group_stratified_split(strat_labels, groups_np, test_size=cfg.val_size, seed=seed_it)
@@ -1107,7 +1107,7 @@ def run_protocol_mcdcv(cfg: "RunConfig") -> Dict[str, Any]:
         else:
             raise RuntimeError("Could not sample a split with both classes in train and test. Check val_size / labels.")
 
-    
+
 
 
         X_train, y_train = X[tr_idx], y_np[tr_idx]
@@ -1206,7 +1206,7 @@ class RunConfig:
     drop_ranges: str
 
     # protocol
-    protocol: str                 # cv_holdout | mcdcv | mcdcv_plsda
+    protocol: str
     mc_iter: int
     inner_splits: int
     n_splits: int

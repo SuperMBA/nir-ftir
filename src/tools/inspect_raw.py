@@ -7,7 +7,7 @@ RAW = Path("data/raw")
 
 def head_preview(path: Path, rows: int = 5, cols: int = 10) -> None:
     print(f"\n=== PREVIEW: {path.name} ===\n")
-    # читаем без заголовка и с заголовком — чтобы увидеть первую строку и типы
+
     df_nohdr = pd.read_excel(path, sheet_name=0, header=None, engine="openpyxl")
     df_hdr = pd.read_excel(path, sheet_name=0, header=0, engine="openpyxl")
     print("[header=None] top-left:")

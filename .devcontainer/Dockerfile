@@ -1,6 +1,6 @@
 FROM mambaorg/micromamba:1.5.7
 
-# 1) Поставим git (и сертификаты), это нужно для postCreateCommand и git внутри контейнера
+# 1)git (и сертификаты)
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git ca-certificates openssh-client && \
@@ -18,7 +18,7 @@ ENV MAMBA_DOCKERFILE_ACTIVATE=1
 ENV CONDA_DEFAULT_ENV=ftir311
 ENV PATH=/opt/conda/envs/ftir311/bin:$PATH
 
-# 4) Ядро Jupyter (без падения, если расширений нет)
+# 4) Ядро Jupyter
 USER $MAMBA_USER
 RUN python -m ipykernel install --user --name ftir311 --display-name "Python (ftir311)" || true && \
     jupyter nbextension enable --py widgetsnbextension || true

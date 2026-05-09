@@ -14,7 +14,7 @@ import pandas as pd
 
 METRIC_COLS = ["auc", "pr_auc", "f1", "recall", "prec", "spec", "acc", "brier", "ece"]
 
-# служебные json-ы, которые точно не являются отчётами метрик
+# служебные json-ы
 SKIP_FILENAMES = {
     "config.json",
     "manifest.json",
@@ -512,8 +512,7 @@ def dedupe_rows(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df.copy()
 
-    # ВАЖНО: run_name НЕ включаем, чтобы схлопывать повторные перезапуски того же сценария
-    # в разных папках (берём самый свежий JSON).
+
     key_cols = [
         "scenario",
         "seed",

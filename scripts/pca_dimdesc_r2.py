@@ -10,17 +10,17 @@ import pandas as pd
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 
-# --- make repo root importable (fixes ModuleNotFoundError: 'src') ---
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src import train_baselines as tb  # noqa: E402
+from src import train_baselines as tb
 
 
 def _try_pvalue_anova(levels: list[np.ndarray]) -> float:
     """p-value via scipy if available; otherwise NaN."""
     try:
-        from scipy.stats import f_oneway  # type: ignore
+        from scipy.stats import f_oneway
 
         return float(f_oneway(*levels).pvalue)
     except Exception:
@@ -37,7 +37,7 @@ def eta2_anova(x: np.ndarray, g: np.ndarray) -> tuple[float, float]:
 
     uniq = np.unique(g)
     levels = [x[g == lvl] for lvl in uniq]
-    # keep only groups with >=2 points
+
     levels = [v for v in levels if len(v) >= 2]
     if len(levels) < 2:
         return np.nan, np.nan
@@ -67,7 +67,7 @@ def make_classic_aug(profile: str, use_mixup: bool) -> tb.AugConfig:
             mixwithin=0.0,
             aug_repeats=1,
         )
-    # “full” just in case
+
     return tb.AugConfig(
         search_aug="fixed",
         p_apply=1.0,
@@ -138,7 +138,7 @@ def main():
         drop_ranges=drop_ranges,
     )
 
-    # center (как у тебя в paper_full профиле)
+
     xsc = StandardScaler(with_mean=True, with_std=False)
     Xr = xsc.fit_transform(Xp).astype(np.float32)
 
@@ -177,7 +177,7 @@ def main():
         fac_type = "quant" if (is_num and nunique > 10) else "qual"
 
         if fac_type == "qual":
-            z = s.astype(str).fillna("NA").str.strip().to_numpy()  # strip is CRITICAL for Parodont: "G "
+            z = s.astype(str).fillna("NA").str.strip().to_numpy()
         else:
             z = pd.to_numeric(s, errors="coerce").to_numpy()
 
@@ -190,7 +190,7 @@ def main():
                 r2b, pb = eta2_anova(xb, z)
                 r2a, pa = eta2_anova(xa, z)
             else:
-                # quick r^2 for quantitative
+
                 m = np.isfinite(z)
                 if m.sum() < 3:
                     r2b, pb, r2a, pa = np.nan, np.nan, np.nan, np.nan
