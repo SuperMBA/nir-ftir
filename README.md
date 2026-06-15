@@ -1,339 +1,354 @@
-# Проект: Аугментация FTIR-спектров слюны и жидкости десневой борозды при дефиците и дисбалансе данных
-Этот репозиторий является программным сопровождением магистерской ВКР по аугментации ATR-FTIR спектров биологических жидкостей. Его задача — показать, что результаты работы получены через воспроизводимый вычислительный пайплайн.
+# Augmentation of ATR-FTIR Spectra in Biomedical Fluids under Small and Imbalanced Data Conditions
 
-В проекте реализованы три взаимосвязанных контура анализа:
+This repository contains the code and reproducible research pipeline for a machine learning project focused on ATR-FTIR spectra of saliva and gingival crevicular fluid.
 
-1. **Supervised evaluation** — сравнение baseline и augmented-сценариев на одинаковых разбиениях, моделях, preprocessing-профилях, правилах выбора порога и схемах калибровки.
-2. **Geometry-first analysis** — анализ изменения PCA-геометрии и factor–PC associations, особенно для малого набора GDB small-n.
-3. **Synthetic-data QC** — контроль качества синтетических спектров через real-vs-synth AUC, kNN overlap, Wasserstein distance и downstream-проверки.
+The project investigates how data augmentation affects supervised model performance, probability calibration, PCA-based data geometry and the quality of synthetic spectra in biomedical datasets with limited sample size and class imbalance.
 
-Ключевой методический принцип проекта:
+The repository supports a master’s thesis in Data Science and is designed as a compact, reproducible and verifiable research codebase.
 
-> эффект аугментации оценивается как парная разность Aug − Base при сохранении всех остальных условий эксперимента.
+## Project Overview
 
-Итоговые таблицы и рисунки, которые напрямую соответствуют выводам ВКР, вынесены в:
+The project includes three connected analysis tracks:
 
-- `reports/final/`
-- `reports/figs/`
+1. **Supervised evaluation**
+   Comparison of baseline and augmented scenarios using identical splits, models, preprocessing profiles, threshold rules and calibration schemes.
 
-Полные run-level отчёты и промежуточные артефакты не хранятся в GitHub, чтобы репозиторий оставался компактным и проверяемым.
+2. **Geometry-first analysis**
+   Analysis of changes in PCA-based data geometry and factor–PC associations, especially for the small-n gingival crevicular fluid dataset.
 
-Основная идея проекта — рассматривать аугментацию не только как способ повысить supervised-метрики, но и как **методологическую интервенцию**, способную изменять геометрию спектрального пространства, устойчивость кластерной структуры и качество вероятностных предсказаний.
+3. **Synthetic-data quality control**
+   Evaluation of synthetic spectra using real-vs-synthetic AUC, kNN overlap, Wasserstein distance and downstream sanity checks.
 
-Проект используется в магистерской ВКР и сопутствующих статьях по FTIR-спектроскопии слюны и жидкости десневой борозды.
+The key methodological principle is:
 
----
+> The effect of augmentation is evaluated as a paired difference: Augmented − Baseline, while keeping all other experimental conditions fixed.
 
-## Что входит в проект
+This design makes it possible to interpret performance and geometry changes as the effect of augmentation rather than as a consequence of different preprocessing, model settings or validation schemes.
 
-В репозитории собраны:
+## Main Idea
 
-- подготовленные датасеты в формате `parquet`;
-- основной универсальный supervised-пайплайн;
-- скрипты серийных запусков для saliva и GDB small-n;
-- скрипты для анализа PCA / dimdesc-like factor–PC associations;
-- скрипты для оценки устойчивости кластеризации;
-- скрипты для QC synthetic data и сравнения classic / VAE / WGAN;
-- агрегаторы результатов и построение итоговых summary-таблиц;
-- минимальный smoke-test, проверяющий, что основной supervised-пайплайн запускается на тестовом примере без ошибок.
+In this project, augmentation is not treated only as a way to improve supervised metrics. It is also considered as a methodological intervention that may affect:
 
----
+* the geometry of the spectral feature space;
+* the stability of cluster structure;
+* the distribution of clinical-factor information across principal components;
+* the calibration and reliability of predicted probabilities;
+* the risk of overly optimistic supervised results in small biomedical datasets.
 
-## Используемые датасеты
+The final summary tables and figure-ready plots used for reporting are stored in:
+
+* `reports/final/`
+* `reports/figs/`
+
+Large intermediate artifacts and full run-level reports are not stored in GitHub in order to keep the repository compact and reviewable.
+
+## Repository Contents
+
+The repository includes:
+
+* processed datasets in `parquet` format;
+* a universal supervised learning pipeline;
+* batch experiment scripts for saliva and GDB small-n datasets;
+* scripts for PCA and factor–PC association analysis;
+* scripts for cluster stability analysis;
+* scripts for synthetic-data QC and comparison of classic augmentation, VAE and WGAN approaches;
+* result aggregation scripts and summary table generation;
+* figure-ready plotting scripts;
+* a minimal smoke test to verify that the main supervised pipeline runs without errors.
+
+## Datasets
 
 ### 1. Saliva / COVID-19
-Используются подготовленные версии открытого набора для ATR-FTIR-скрининга COVID-19:
 
-- `data/processed/train.parquet`
-- `data/processed/external.parquet`
+The project uses processed versions of an open ATR-FTIR saliva dataset for COVID-19 screening:
 
-`train.parquet` содержит 183 спектра от 61 субъекта (по 3 реплики на ID) и используется для supervised-моделирования.  
-`external.parquet` содержит по одной записи на ID и используется для PCA/EDA.
+* `data/processed/train.parquet`
+* `data/processed/external.parquet`
 
-Важно: `external.parquet` **не является независимым внешним тестом**, так как идентификаторы субъектов совпадают с `train.parquet`. Поэтому он используется только для geometry-oriented анализа.
+`train.parquet` contains 183 spectra from 61 subjects, with three spectral replicates per subject. It is used for supervised modeling.
 
-### 2. Saliva / diabetes
-Используется подготовленный датасет:
+`external.parquet` contains one record per subject and is used for PCA and exploratory geometry-oriented analysis.
 
-- `data/processed/diabetes_saliva.parquet`
+Important note: `external.parquet` is not an independent external test set, because subject identifiers overlap with `train.parquet`. Therefore, it is used only for exploratory and geometry-oriented analysis.
 
-Набор содержит 1040 спектров ATR-FTIR слюны и метаданные (`population`, `gender`, `age`, `glucose`, `glucose_group`, `hemoglobin` и др.).  
-В текущей версии проекта результаты для этого набора интерпретируются на **sample level**, а не на patient level.
+### 2. Saliva / Diabetes
 
-### 3. GDB small-n
-Датасет предоставлен группой исследователей под руководством ПВ Середина и ранее описан в работах:
-- https://www.mdpi.com/1422-0067/26/10/4693
-- https://www.mdpi.com/1422-0067/25/12/6395
-  
-GDB small-n не включён в публичный репозиторий по ограничениям доступа; для него предоставлены скрипты, агрегированные таблицы, итоговые графики и описание схемы подготовки данных.
-Он содержит 18 спектров жидкости десневой борозды и клинические факторы:
+The diabetes saliva dataset is stored as:
 
-- `Gender`
-- `Age_factor`
-- `caries_factor`
-- `Parodont`
-- `Anamnes_factor`
+* `data/processed/diabetes_saliva.parquet`
 
-а также производные бинарные задачи:
+It contains 1040 ATR-FTIR saliva spectra together with metadata such as `population`, `gender`, `age`, `glucose`, `glucose_group`, `hemoglobin` and other variables.
 
-- `y_parodont_H_vs_path`
-- `y_anamnes_H_vs_path`
-- `y_healthy_vs_any`
+In the current version of the project, results for this dataset are interpreted at the sample level rather than at the patient level.
 
-Для этого набора основной акцент сделан не на прямом росте supervised-метрик, а на анализе **геометрии данных**, `PCA/dimdesc-like` связей, устойчивости кластеризации и QC synthetic data.
+### 3. GDB Small-n Dataset
 
----
+The gingival crevicular fluid dataset is a small-n biomedical dataset provided by the research group of P. V. Seredin and previously described in the following publications:
 
-## Структура репозитория
+* https://www.mdpi.com/1422-0067/26/10/4693
+* https://www.mdpi.com/1422-0067/25/12/6395
+
+The GDB small-n dataset is not included in the public repository due to access restrictions. For this dataset, the repository provides scripts, aggregated tables, final figures and a description of the data preparation and analysis workflow.
+
+The dataset contains 18 gingival crevicular fluid spectra and the following clinical factors:
+
+* `Gender`
+* `Age_factor`
+* `caries_factor`
+* `Parodont`
+* `Anamnes_factor`
+
+It also includes derived binary classification tasks:
+
+* `y_parodont_H_vs_path`
+* `y_anamnes_H_vs_path`
+* `y_healthy_vs_any`
+
+For this dataset, the main focus is not direct improvement of supervised metrics, but analysis of data geometry, PCA/dimdesc-like factor associations, cluster stability and synthetic-data quality control.
+
+## Repository Structure
 
 ```text
 nir-ftir/
-├── configs/                  # конфиги и служебные настройки
+├── configs/                  # Configuration files and service settings
 ├── data/
-│   ├── raw/                  # сырые данные, локально, не версионируются
-│   └── processed/            # подготовленные parquet-датасеты
-├── reports/                  # итоговые таблицы и figure-ready графики
-├── scripts/                  # скрипты запусков, агрегации и построения графиков
-├── src/                      # основной код пайплайна
-├── tests/                    # минимальные тесты работоспособности пайплайна
-├── environment.yml           # окружение conda/mamba
+│   ├── raw/                  # Raw data, stored locally and not versioned
+│   └── processed/            # Processed parquet datasets
+├── reports/                  # Final summary tables and figure-ready plots
+├── scripts/                  # Experiment, aggregation and plotting scripts
+├── src/                      # Core pipeline code
+├── tests/                    # Minimal smoke tests
+├── environment.yml           # Conda/mamba environment
 ├── pyproject.toml
 └── README.md
-
 ```
 
-### Основные модули и скрипты
-## Ядро пайплайна
+## Core Pipeline
 
-- src/train_baselines.py — основной универсальный supervised-пайплайн:
+### Supervised Learning
 
- - загрузка parquet-данных;
+`src/train_baselines.py` is the main universal supervised learning pipeline.
 
- - определение спектральных колонок;
+It includes:
 
- - предобработка;
+* loading parquet datasets;
+* identifying spectral columns;
+* preprocessing;
+* leakage-safe splitting;
+* train-only augmentation;
+* model training;
+* optional probability calibration;
+* metric calculation;
+* saving JSON reports.
 
- - leakage-safe split;
+### Data Preparation
 
- - train-only augmentation;
+* `src/prepare_data.py` — preparation of saliva datasets;
+* `src/preprocess_diabetes_saliva.py` — preparation of the diabetes saliva dataset;
+* `src/prepare_gdb_smalln.py` — preparation of the GDB small-n dataset;
+* `src/eda_qc.py` — EDA and QC for saliva datasets;
+* `src/cluster_analysis.py` — extended exploratory and cluster analysis.
 
- - обучение моделей;
+### Batch Experiments
 
- - optional calibration;
+* `scripts/run_all_experiments.sh` — main experiment series for saliva datasets:
 
- - расчет метрик;
+  * COVID-19: baseline vs classic augmentation;
+  * diabetes: baseline vs strong augmentation.
 
- - cохранение JSON-отчетов.
+* `scripts/run_gdb_study.sh` — supervised stability experiments for GDB small-n;
 
-## Подготовка данных
+* `scripts/run_gdb_qc_r2.sh` — synthetic-data QC and downstream sanity checks for GDB;
 
- - src/prepare_data.py — подготовка saliva-датасетов;
+* `scripts/run_gdb_dimdesc_r2.sh` — PCA and dimdesc-like analysis for GDB.
 
- - src/preprocess_diabetes_saliva.py — подготовка diabetes saliva;
+### Geometry-First and QC Analysis
 
- - src/prepare_gdb_smalln.py — подготовка GDB small-n;
+* `scripts/pca_dimdesc_r2.py` — PCA and factor–PC association analysis;
+* `scripts/cluster_pca_stability.py` — cluster stability analysis;
+* `scripts/gdb_qc_r2_generators.py` — QC comparison of classic augmentation, VAE and WGAN synthetic data.
 
- - src/eda_qc.py — EDA/QC для saliva-наборов;
+### Aggregation and Visualization
 
- - src/cluster_analysis.py — расширенный exploratory / cluster analysis.
+* `scripts/aggregate_reports.py` — summary tables for saliva experiments;
+* `scripts/aggregate_gdb_smalln_reports.py` — aggregation of supervised GDB small-n runs;
+* `scripts/aggregate_dimdesc_r2.py` — PCA/dimdesc-like analysis summaries;
+* `scripts/plot_summary.py` — final comparative plots;
+* `scripts/plot_dimdesc_r2_curves.py` — R² curves across principal components;
+* `scripts/make_figs.py` — export of selected figure-ready plots.
 
-## Серийные запуски
+## Experimental Design
 
-- scripts/run_all_experiments.sh — основные серии прогонов для saliva:
-  - COVID-19: baseline vs classic augmentation;
-  - diabetes: baseline vs strong augmentation.
+All experiment series follow the same comparison principle:
 
-- scripts/run_gdb_study.sh — supervised stability experiments для GDB small-n;
-
-- scripts/run_gdb_qc_r2.sh — запуск QC synthetic data и downstream sanity-checks;
-
-- scripts/run_gdb_dimdesc_r2.sh — запуск PCA / dimdesc-like анализа для GDB.
-
-## Geometry-first и QC анализ
-
- - scripts/pca_dimdesc_r2.py — PCA / factor–PC association analysis;
-
- - scripts/cluster_pca_stability.py — оценка устойчивости кластеризации;
-
- - scripts/gdb_qc_r2_generators.py — QC classic / VAE / WGAN synthetic data.
-
-## Агрегация и визуализация
-
- - scripts/aggregate_reports.py — сводные таблицы по saliva;
-
- - scripts/aggregate_gdb_smalln_reports.py — агрегирование supervised GDB small-n прогонов;
-
- - scripts/aggregate_dimdesc_r2.py — summary по PCA/dimdesc-like анализу;
-
- - scripts/plot_summary.py — построение итоговых сравнительных графиков;
-
- - scripts/plot_dimdesc_r2_curves.py — кривые R² across PCs;
-
- - scripts/make_figs.py — экспорт выбранных figure-ready графиков.
-
----
-
-## Подход к экспериментам
-
-Во всех сериях используется единый принцип:
-
-**baseline → augmentation**
-
- - в baseline-сценарии модель обучается только на реальных спектрах;
-
- - в augmented-сценарии к обучающей выборке добавляются синтетически возмущенные версии тех же спектров;
-
- - все остальные условия сравнения сохраняются одинаковыми.
-
-Это позволяет интерпретировать разности вида **Aug − Base** именно как эффект аугментации, а не как следствие другой preprocessing-цепочки или иной схемы валидации.
-
----
-
-
-## Что именно исследуется
-
-Проект покрывает два разных режима анализа:
-
-### 1. Large / medium datasets (saliva)
-
-Здесь аугментация рассматривается прежде всего как возможный регуляризатор supervised-моделей.
-Оцениваются:
-
- - Recall
- - F1
- - PR-AUC
- - ROC-AUC
- - specificity
- - Brier score
- - ECE
-
-### 2. Very small n (GDB small-n)
-
-Здесь аугментация рассматривается прежде всего как воздействие на геометрию данных.
-Дополнительно анализируются:
- - PCA и перераспределение дисперсии;
- - dimdesc-like factor–PC associations;
- - правило best-PC/top-k;
- - устойчивость кластеризации;
- - QC synthetic data:
-
-     - real-vs-synth AUC,
-
-     - kNN overlap,
-
-     - Wasserstein distance.
-  
----
-
-## Как воспроизвести основные результаты
-# 1. Создать окружение
 ```text
+baseline → augmentation
+```
+
+In the baseline scenario, models are trained only on real spectra.
+
+In the augmented scenario, synthetically perturbed versions of the training spectra are added to the training data.
+
+All other conditions are kept identical, including:
+
+* data splits;
+* preprocessing profile;
+* model type;
+* threshold selection rule;
+* calibration setting;
+* metric calculation.
+
+This makes it possible to interpret `Augmented − Baseline` differences as the effect of augmentation.
+
+## Analysis Regimes
+
+The project covers two different analysis regimes.
+
+### 1. Medium-Scale Saliva Datasets
+
+For saliva datasets, augmentation is mainly evaluated as a possible regularizer for supervised models.
+
+The following metrics are analyzed:
+
+* Recall
+* F1
+* PR-AUC
+* ROC-AUC
+* Specificity
+* Brier score
+* Expected Calibration Error
+
+### 2. Very Small-n GDB Dataset
+
+For the GDB small-n dataset, augmentation is treated primarily as an intervention into data geometry.
+
+Additional analyses include:
+
+* PCA and redistribution of variance;
+* dimdesc-like factor–PC associations;
+* best-PC and top-k analysis;
+* cluster stability;
+* synthetic-data QC:
+
+  * real-vs-synthetic AUC;
+  * kNN overlap;
+  * Wasserstein distance.
+
+## Reproducing the Main Results
+
+### 1. Create the Environment
+
+```bash
 mamba env create -f environment.yml
 mamba activate ftir311_local
 ```
-# 2. Запустить основные saliva-эксперименты
-```text
+
+### 2. Run the Main Saliva Experiments
+
+```bash
 bash scripts/run_all_experiments.sh
-
 ```
-# 3. Запустить supervised GDB small-n
-```text
+
+### 3. Run Supervised GDB Small-n Experiments
+
+```bash
 bash scripts/run_gdb_study.sh
-
 ```
-# 4. Запустить GDB QC и downstream sanity-checks
-```text
+
+### 4. Run GDB Synthetic-Data QC and Downstream Sanity Checks
+
+```bash
 bash scripts/run_gdb_qc_r2.sh
-
 ```
-# 5. Запустить PCA / dimdesc-like анализ
-```text
+
+### 5. Run PCA / Dimdesc-Like Analysis
+
+```bash
 bash scripts/run_gdb_dimdesc_r2.sh
-
 ```
-# 6. Построить summary-таблицы
-```text
+
+### 6. Build Summary Tables
+
+```bash
 python scripts/aggregate_reports.py
 python scripts/aggregate_gdb_smalln_reports.py
 python scripts/aggregate_dimdesc_r2.py
-
 ```
-## Быстрая проверка работоспособности
 
-Для проверки того, что окружение собрано корректно и основной код пайплайна импортируется и запускается без ошибок, в проект добавлен минимальный smoke-test:
+## Smoke Test
+
+A minimal smoke test is included to verify that the environment is correctly configured and that the main supervised pipeline can be imported and executed on a test example.
 
 ```bash
 python -m pytest -q tests/test_smoke_pipeline.py
----
-Этот тест не воспроизводит полный эксперимент и не заменяет основные серии запусков. Его задача — быстро проверить техническую целостность проекта после изменений в коде, окружении или структуре репозитория.
+```
 
-Также можно выполнить проверку компиляции Python-файлов:
+Expected result:
 
-python -m compileall src scripts tests
-
-Ожидаемый результат для smoke-test:
-
+```text
 1 passed
+```
 
-# Что хранится в Git
+This test does not reproduce the full experiment and does not replace the main experiment series. Its purpose is to quickly check the technical integrity of the repository after changes in code, environment or project structure.
 
-В GitHub intentionally включены:
+Python file compilation can also be checked with:
 
- - код проекта;
+```bash
+python -m compileall src scripts tests
+```
 
- - конфигурации;
+## What Is Stored in GitHub
 
- - подготовленные ключевые parquet-датасеты;
+The repository intentionally includes:
 
- - компактные summary-файлы.
+* project code;
+* configuration files;
+* key processed parquet datasets;
+* compact summary files;
+* selected final figures.
 
-Не хранятся:
+The repository does not include:
 
- - сырые данные;
+* raw data;
+* large intermediate artifacts;
+* full run-level reports;
+* automatically generated QC and figure folders.
 
- - промежуточные и тяжелые артефакты экспериментов;
+## Final Artifacts
 
- - крупные папки с run-level отчетами;
-
- - автоматически сгенерированные figure / QC папки.
-
-## Текущий статус проекта
-
-Репозиторий отражает финальную исследовательскую структуру магистерской работы:
-
-- открытые saliva-наборы;
-
-- GDB small-n;
-
-- baseline vs augmentation;
-
-- supervised evaluation;
-
-- geometry-first analysis;
-
-- cluster stability;
-
-- synthetic-data QC.
-
-## Итоговые результаты в репозитории
-
-Для удобства проверки итоговые артефакты вынесены в компактные папки.
+For convenient review, the most important final artifacts are stored in compact folders.
 
 ### `reports/final/`
 
-Содержит основные summary-таблицы:
+This folder contains the main summary tables:
 
-- `gdb_dimdesc_window_summary.csv` — сравнение спектральных окон для GDB small-n;
-- `gdb_dimdesc_best_pc_per_factor.csv` — best-PC результаты по клиническим факторам;
-- `gdb_qc_amide3_method_summary.csv` — QC synthetic data для Amide III;
-- `gdb_qc_broad_method_summary.csv` — QC synthetic data для контрольного широкого диапазона;
-- `diabetes_meta_only_holdout.csv` — компактная сводка по diabetes saliva.
+* `gdb_dimdesc_window_summary.csv` — comparison of spectral windows for GDB small-n;
+* `gdb_dimdesc_best_pc_per_factor.csv` — best-PC results for clinical factors;
+* `gdb_qc_amide3_method_summary.csv` — synthetic-data QC for the Amide III region;
+* `gdb_qc_broad_method_summary.csv` — synthetic-data QC for the broader control range;
+* `diabetes_meta_only_holdout.csv` — compact summary for the diabetes saliva dataset.
 
 ### `reports/figs/`
 
-Содержит финальные figure-ready графики:
+This folder contains final figure-ready plots:
 
-- `fig1_dimdesc_windows.png` / `.pdf`;
-- `fig2_pc_curve_amide3_Anamnes_factor.png` / `.pdf`.
+* `fig1_dimdesc_windows.png` / `.pdf`;
+* `fig2_pc_curve_amide3_Anamnes_factor.png` / `.pdf`.
 
-Эти файлы предназначены как проверяемая витрина основных результатов ВКР.
+These files serve as a compact and verifiable representation of the main project results.
+
+## Current Status
+
+The repository reflects the final research structure of the master’s thesis project:
+
+* open saliva datasets;
+* GDB small-n dataset;
+* baseline vs augmentation experiments;
+* supervised evaluation;
+* geometry-first analysis;
+* cluster stability checks;
+* synthetic-data quality control.
+
+## Keywords
+
+ATR-FTIR, biomedical spectra, saliva, gingival crevicular fluid, data augmentation, machine learning, medical AI, healthcare analytics, PCA, synthetic data quality control, small-n biomedical data, model calibration, reproducible research.
